@@ -1,34 +1,31 @@
 import 'package:flutter/material.dart';
+import 'screens/home_page.dart';
 
 void main() {
-  runApp(const MyApp());
+  runApp(const DementiaCareApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class DementiaCareApp extends StatelessWidget {
+  const DementiaCareApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return const MaterialApp(
-      debugShowCheckedModeBanner: false,
-      home: HomePage(),
-    );
-  }
-}
-
-class HomePage extends StatelessWidget {
-  const HomePage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("My First Flutter App")),
-      body: const Center(
-        child: Text(
-          "Hello Flutter!",
-          style: TextStyle(fontSize: 26),
+    return MaterialApp(
+      title: 'CogniCare',
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.blue,
+          brightness: Brightness.light,
+        ),
+        useMaterial3: true,
+        textTheme: const TextTheme(
+          headlineLarge: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+          headlineMedium: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+          bodyLarge: TextStyle(fontSize: 20),
+          bodyMedium: TextStyle(fontSize: 18),
         ),
       ),
+      home: const HomePage(),
     );
   }
 }
