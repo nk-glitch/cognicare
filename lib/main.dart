@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'screens/home_page.dart';
+import 'package:cognicare/screens/caretaker_home_screen.dart';
 
 void main() {
   runApp(const DementiaCareApp());
@@ -25,7 +25,7 @@ class DementiaCareApp extends StatelessWidget {
           bodyMedium: TextStyle(fontSize: 18),
         ),
       ),
-      home: const HomePage(),
+      home: const CaretakerHomeScreen(),
     );
   }
 }
