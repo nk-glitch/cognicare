@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'patient_detail_screen.dart';
 import '../models/patient_model.dart';
+import 'profile_page.dart';
 
 class CaretakerHomeScreen extends StatefulWidget {
   const CaretakerHomeScreen({Key? key}) : super(key: key);
@@ -162,24 +163,52 @@ class _CaretakerHomeScreenState extends State<CaretakerHomeScreen>
                   ],
                 ),
               ),
-              Container(
-                width: 70,
-                height: 70,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.15),
-                      blurRadius: 8,
-                      offset: const Offset(0, 3),
+              InkWell(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ProfilePage(
+                        userName: caretakerName,
+                        phone: '555-123-4567',
+                        address: '123 Caretaker Street, City, State',
+                        isCaretaker: true,
+                        notifications: [
+                          NotificationItem.scheduleUpdate(
+                            patientName: 'John Smith',
+                            updatedBy: 'You',
+                            timestamp: DateTime.now().subtract(const Duration(hours: 2)),
+                          ),
+                          NotificationItem.patientAdded(
+                            caretakerName: 'Dr. Johnson',
+                            patientName: 'Mary Johnson',
+                            timestamp: DateTime.now().subtract(const Duration(days: 1)),
+                          ),
+                        ],
+                      ),
                     ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.person,
-                  size: 40,
-                  color: Color(0xFF8FA9C9),
+                  );
+                },
+                borderRadius: BorderRadius.circular(35),
+                child: Container(
+                  width: 70,
+                  height: 70,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.15),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.person,
+                    size: 40,
+                    color: Color(0xFF8FA9C9),
+                  ),
                 ),
               ),
             ],

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cognicare/screens/caretaker_home_screen.dart';
+import 'package:cognicare/screens/role_selection_screen.dart';
 
 void main() {
   runApp(const DementiaCareApp());
@@ -12,9 +12,10 @@ class DementiaCareApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'CogniCare',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.blue,
+          seedColor: const Color(0xFF8FA9C9),
           brightness: Brightness.light,
         ),
         useMaterial3: true,
@@ -25,7 +26,7 @@ class DementiaCareApp extends StatelessWidget {
           bodyMedium: TextStyle(fontSize: 18),
         ),
       ),
-      home: const CaretakerHomeScreen(),
+      home: const RoleSelectionScreen(),
     );
   }
 }
