@@ -62,7 +62,14 @@ class _PatientDetailScreenState extends State<PatientDetailScreen>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       decoration: BoxDecoration(
-        color: const Color(0xFFE8C4C8),
+        gradient: const LinearGradient(
+          colors: [
+            Color(0xFFE8C4C8), // left color (header start)
+            Color(0xFFF4E4E1), // right color (toward bubble)
+          ],
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+        ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.05),
@@ -74,6 +81,7 @@ class _PatientDetailScreenState extends State<PatientDetailScreen>
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
+          // Back button
           IconButton(
             onPressed: () => Navigator.pop(context),
             icon: const Icon(Icons.arrow_back, color: Color(0xFF3D2C31)),
@@ -82,6 +90,8 @@ class _PatientDetailScreenState extends State<PatientDetailScreen>
               padding: const EdgeInsets.all(8),
             ),
           ),
+
+          // Date
           Text(
             DateFormat('MMMM dd, yyyy').format(DateTime.now()),
             style: const TextStyle(
@@ -90,22 +100,36 @@ class _PatientDetailScreenState extends State<PatientDetailScreen>
               fontWeight: FontWeight.w600,
             ),
           ),
+
+          // Logo bubble (unchanged)
           Container(
-            padding: const EdgeInsets.all(10),
+            width: 60,
+            height: 40,
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.5),
+              color: const Color(0xFFF4E4E1), // bubble color stays the same
               borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 6,
+                  offset: const Offset(0, 3),
+                ),
+              ],
             ),
-            child: const Icon(
-              Icons.favorite,
-              color: Color(0xFFD47A8A),
-              size: 24,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.asset(
+                'assets/images/logo.png',
+                fit: BoxFit.contain,
+              ),
             ),
           ),
         ],
       ),
     );
   }
+
+
 
   Widget _buildPatientInfoCard() {
     return Container(

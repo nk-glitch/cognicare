@@ -95,7 +95,14 @@ class _CaretakerHomeScreenState extends State<CaretakerHomeScreen>
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: const Color(0xFFE8C4C8),
+        gradient: const LinearGradient(
+          colors: [
+            Color(0xFFD7B3B7), // darker header start
+            Color(0xFFF4E4E1), // lighter top-right
+          ],
+          begin: Alignment.bottomLeft,
+          end: Alignment.topRight,
+        ),
         borderRadius: const BorderRadius.only(
           bottomLeft: Radius.circular(32),
           bottomRight: Radius.circular(32),
@@ -104,12 +111,14 @@ class _CaretakerHomeScreenState extends State<CaretakerHomeScreen>
           BoxShadow(
             color: Colors.black.withOpacity(0.1),
             blurRadius: 10,
-            offset: const Offset(0, 5),
+            offset: Offset(0, 5),
           ),
         ],
       ),
+
       child: Column(
         children: [
+          // Top row: date + logo
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -121,21 +130,35 @@ class _CaretakerHomeScreenState extends State<CaretakerHomeScreen>
                   fontWeight: FontWeight.w500,
                 ),
               ),
+              // Logo bubble (unchanged)
               Container(
-                padding: const EdgeInsets.all(8),
+                width: 80,
+                height: 60,
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.5),
+                  color: const Color(0xFFF4E4E1),
                   borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 6,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
                 ),
-                child: const Icon(
-                  Icons.favorite,
-                  color: Color(0xFFD47A8A),
-                  size: 24,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.asset(
+                    'assets/images/logo.png',
+                    fit: BoxFit.contain,
+                  ),
                 ),
               ),
             ],
           ),
+
           const SizedBox(height: 24),
+
+          // Welcome + caretaker info row
           Row(
             children: [
               Expanded(
@@ -162,6 +185,7 @@ class _CaretakerHomeScreenState extends State<CaretakerHomeScreen>
                   ],
                 ),
               ),
+              // Circular avatar
               Container(
                 width: 70,
                 height: 70,
@@ -184,7 +208,10 @@ class _CaretakerHomeScreenState extends State<CaretakerHomeScreen>
               ),
             ],
           ),
+
           const SizedBox(height: 16),
+
+          // Patient count card
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             decoration: BoxDecoration(
@@ -215,6 +242,7 @@ class _CaretakerHomeScreenState extends State<CaretakerHomeScreen>
       ),
     );
   }
+
 
   Widget _buildPatientList() {
     return ListView.builder(
