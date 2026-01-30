@@ -1,7 +1,6 @@
 plugins {
     id("com.android.application")
     id("kotlin-android")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
     id("com.google.gms.google-services")
 }
@@ -12,10 +11,9 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        // Enable core library desugaring
         isCoreLibraryDesugaringEnabled = true
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     kotlinOptions {
@@ -24,7 +22,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.cognicare"
-        minSdk = flutter.minSdkVersion  // ← CHANGE THIS from flutter.minSdkVersion to 21
+        minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -43,7 +41,5 @@ flutter {
 }
 
 dependencies {
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")  // ← ADD THIS BLOCK
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
-
-apply(plugin = "com.google.gms.google-services")
