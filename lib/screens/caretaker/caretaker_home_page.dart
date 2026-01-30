@@ -1,56 +1,739 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/auth_service.dart';
 import '../auth/login_page.dart';
+import '../profile_page.dart';
+import 'patient_detail_page.dart';
 
-class CaretakerHomePage extends StatelessWidget {
+class CaretakerHomePage extends StatefulWidget {
   const CaretakerHomePage({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final authService = AuthService();
+  State<CaretakerHomePage> createState() => _CaretakerHomePageState();
+}
 
+class _CaretakerHomePageState extends State<CaretakerHomePage>
+    with SingleTickerProviderStateMixin {
+  final AuthService _authService = AuthService();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  late AnimationController _animationController;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
+
+  String caretakerName = "Loading...";
+  List<Map<String, dynamic>> patients = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    );
+
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _animationController,
+        curve: Curves.easeIn,
+      ),
+    );
+
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.3),
+      end: Offset.zero,
+    ).animate(
+      CurvedAnimation(
+        parent: _animationController,
+        curve: Curves.easeOutCubic,
+      ),
+    );
+
+    _loadCaretakerData();
+    _animationController.forward();
+  }
+
+  Future<void> _loadCaretakerData() async {
+    try {
+      final user = _authService.currentUser;
+      print('DEBUG: Loading caretaker data for user: ${user?.uid}');
+
+      if (user != null) {
+        final userData = await _authService.getUserData(user.uid);
+        if (userData != null) {
+          setState(() {
+            caretakerName = '${userData['firstName']} ${userData['lastName']}';
+          });
+        }
+
+        // Load accepted patients
+        print('DEBUG: Querying relationships...');
+        final relationshipsSnapshot = await _firestore
+            .collection('patient_caretaker_relationships')
+            .where('caretakerId', isEqualTo: user.uid)
+            .where('status', isEqualTo: 'accepted')
+            .get();
+
+        print('DEBUG: Found ${relationshipsSnapshot.docs.length} accepted relationships');
+
+        List<Map<String, dynamic>> loadedPatients = [];
+        for (var doc in relationshipsSnapshot.docs) {
+          final data = doc.data();
+          final patientId = data['patientId'];
+          print('DEBUG: Loading patient: $patientId');
+
+          // Get patient user data
+          final patientUserData = await _authService.getUserData(patientId);
+          final patientData = await _authService.getPatientData(patientId);
+
+          print('DEBUG: Patient user data: $patientUserData');
+          print('DEBUG: Patient data: $patientData');
+
+          if (patientUserData != null) {
+            final patientName = '${patientUserData['firstName']} ${patientUserData['lastName']}';
+            final location = patientData?['address'] ?? 'No location set';
+
+            // Get today's reminders for this patient
+            final now = DateTime.now();
+            final startOfDay = DateTime(now.year, now.month, now.day);
+            final endOfDay = DateTime(now.year, now.month, now.day, 23, 59, 59);
+
+            final remindersSnapshot = await _firestore
+                .collection('reminders')
+                .where('patientId', isEqualTo: patientId)
+                .where('time', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
+                .where('time', isLessThanOrEqualTo: Timestamp.fromDate(endOfDay))
+                .get();
+
+            final remindersList = remindersSnapshot.docs
+                .map((doc) => doc.data()['title'] as String)
+                .toList();
+
+            print('DEBUG: Found ${remindersList.length} reminders for patient');
+
+            loadedPatients.add({
+              'patientId': patientId,
+              'name': patientName,
+              'location': location,
+              'reminders': remindersList,
+            });
+          }
+        }
+
+        print('DEBUG: Total patients loaded: ${loadedPatients.length}');
+
+        setState(() {
+          patients = loadedPatients;
+          _isLoading = false;
+        });
+      }
+    } catch (e, stackTrace) {
+      print('Error loading caretaker data: $e');
+      print('Stack trace: $stackTrace');
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Caretaker Home'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () async {
-              await authService.signOut();
-              if (context.mounted) {
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (_) => const LoginPage()),
-                );
-              }
-            },
+      backgroundColor: const Color(0xFFF5E6E8),
+      body: SafeArea(
+        child: FadeTransition(
+          opacity: _fadeAnimation,
+          child: SlideTransition(
+            position: _slideAnimation,
+            child: Column(
+              children: [
+                _buildHeader(),
+                Expanded(
+                  child: _isLoading
+                      ? const Center(child: CircularProgressIndicator())
+                      : _buildPatientList(),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      floatingActionButton: _buildAddPatientFAB(),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE8C4C8),
+        borderRadius: const BorderRadius.only(
+          bottomLeft: Radius.circular(32),
+          bottomRight: Radius.circular(32),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 5),
           ),
         ],
       ),
-      body: Center(
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                DateFormat('MMMM dd, yyyy').format(DateTime.now()),
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: Color(0xFF5A4046),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.5),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.favorite,
+                      color: Color(0xFFD47A8A),
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(Icons.logout, color: Color(0xFF5A4046)),
+                    onPressed: () async {
+                      await _authService.signOut();
+                      if (mounted) {
+                        Navigator.pushReplacement(
+                          context,
+                          MaterialPageRoute(builder: (_) => const LoginPage()),
+                        );
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Welcome',
+                      style: TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF3D2C31),
+                        height: 1.2,
+                      ),
+                    ),
+                    Text(
+                      caretakerName,
+                      style: const TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF5A4046),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              InkWell(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const ProfilePage(isCaretaker: true),
+                    ),
+                  );
+                },
+                borderRadius: BorderRadius.circular(35),
+                child: Container(
+                  width: 70,
+                  height: 70,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.15),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.person,
+                    size: 40,
+                    color: Color(0xFF8FA9C9),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.6),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.people,
+                  size: 18,
+                  color: Color(0xFF5A4046),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '${patients.length} ${patients.length == 1 ? 'Patient' : 'Patients'} Under Care',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF5A4046),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPatientList() {
+    if (patients.isEmpty) {
+      return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.check_circle, size: 100, color: Colors.blue),
-            const SizedBox(height: 20),
-            const Text(
-              'Caretaker Home Page',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            Icon(
+              Icons.people_outline,
+              size: 80,
+              color: Colors.grey.shade400,
             ),
-            const SizedBox(height: 10),
-            const Text('Successfully logged in as Caretaker!'),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
+            Text(
+              'No patients yet',
+              style: TextStyle(
+                fontSize: 20,
+                color: Colors.grey.shade600,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Tap the button below to add a patient',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey.shade500,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(20),
+      itemCount: patients.length,
+      itemBuilder: (context, index) {
+        return TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0.0, end: 1.0),
+          duration: Duration(milliseconds: 300 + (index * 100)),
+          curve: Curves.easeOutCubic,
+          builder: (context, value, child) {
+            return Transform.scale(
+              scale: value,
+              child: Opacity(
+                opacity: value,
+                child: child,
+              ),
+            );
+          },
+          child: _buildPatientCard(patients[index]),
+        );
+      },
+    );
+  }
+
+  Widget _buildPatientCard(Map<String, dynamic> patient) {
+    final String name = patient['name'] ?? 'Unknown';
+    final String location = patient['location'] ?? 'No location';
+    final List<dynamic> reminders = patient['reminders'] ?? [];
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            // TODO: Navigate to patient details
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Patient details for $name')),
+            );
+          },
+          borderRadius: BorderRadius.circular(24),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade300,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Center(
+                        child: Text(
+                          name.split(' ').map((n) => n.isNotEmpty ? n[0] : '').join(),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            name,
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF3D2C31),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.location_on,
+                                size: 16,
+                                color: Color(0xFF8FA9C9),
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  location,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    color: Color(0xFF7A6A70),
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF5E6E8),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.chevron_right,
+                        color: Color(0xFF8FA9C9),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                const Divider(),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE8C4C8).withOpacity(0.5),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.notifications_active,
+                        size: 18,
+                        color: Color(0xFFD47A8A),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    const Text(
+                      "Today's Reminders:",
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF3D2C31),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                if (reminders.isEmpty)
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF5E6E8),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(
+                          Icons.check_circle_outline,
+                          size: 20,
+                          color: Color(0xFF8FA9C9),
+                        ),
+                        SizedBox(width: 8),
+                        Text(
+                          'No reminders scheduled',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Color(0xFF7A6A70),
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  ...reminders.map((reminder) => Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF5E6E8),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: const Color(0xFFE8C4C8),
+                        width: 1,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: const BoxDecoration(
+                            color: Color(0xFFD47A8A),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            reminder.toString(),
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: Color(0xFF5A4046),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAddPatientFAB() {
+    return FloatingActionButton.extended(
+      onPressed: _showAddPatientDialog,
+      backgroundColor: const Color(0xFF8FA9C9),
+      elevation: 8,
+      icon: const Icon(Icons.person_add, color: Colors.white),
+      label: const Text(
+        'Add Patient',
+        style: TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+          fontSize: 16,
+        ),
+      ),
+    );
+  }
+
+  void _showAddPatientDialog() {
+    final phoneController = TextEditingController();
+    bool isSearching = false;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('Add Patient'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Enter the patient\'s phone number to connect with them.'),
+              const SizedBox(height: 16),
+              TextField(
+                controller: phoneController,
+                keyboardType: TextInputType.phone,
+                decoration: InputDecoration(
+                  labelText: 'Patient Phone Number',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  prefixIcon: const Icon(Icons.phone),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
             ElevatedButton(
-              onPressed: () async {
-                await authService.signOut();
-                if (context.mounted) {
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(builder: (_) => const LoginPage()),
+              onPressed: isSearching ? null : () async {
+                final phone = phoneController.text.trim();
+                if (phone.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Please enter a phone number')),
                   );
+                  return;
+                }
+
+                setDialogState(() => isSearching = true);
+
+                try {
+                  // Search for patient by phone number
+                  final usersSnapshot = await _firestore
+                      .collection('users')
+                      .where('phone', isEqualTo: phone)
+                      .where('userType', isEqualTo: 'patient')
+                      .limit(1)
+                      .get();
+
+                  if (usersSnapshot.docs.isEmpty) {
+                    if (mounted) {
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('No patient found with this phone number'),
+                          backgroundColor: Colors.orange,
+                        ),
+                      );
+                    }
+                    return;
+                  }
+
+                  final patientUserId = usersSnapshot.docs.first.id;
+                  final currentUserId = _authService.currentUser!.uid;
+
+                  // Check if relationship already exists
+                  final existingRelationship = await _firestore
+                      .collection('patient_caretaker_relationships')
+                      .where('patientId', isEqualTo: patientUserId)
+                      .where('caretakerId', isEqualTo: currentUserId)
+                      .limit(1)
+                      .get();
+
+                  if (existingRelationship.docs.isNotEmpty) {
+                    if (mounted) {
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Connection request already sent'),
+                          backgroundColor: Colors.orange,
+                        ),
+                      );
+                    }
+                    return;
+                  }
+
+                  // Create connection request
+                  await _firestore.collection('patient_caretaker_relationships').add({
+                    'patientId': patientUserId,
+                    'caretakerId': currentUserId,
+                    'status': 'pending',
+                    'createdAt': FieldValue.serverTimestamp(),
+                  });
+
+                  if (mounted) {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Connection request sent! Waiting for patient to accept.'),
+                        backgroundColor: Color(0xFF8FA9C9),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  print('Error sending request: $e');
+                  if (mounted) {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Error: $e'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                } finally {
+                  setDialogState(() => isSearching = false);
                 }
               },
-              child: const Text('Logout'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF8FA9C9),
+              ),
+              child: isSearching
+                  ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+                  : const Text('Send Request'),
             ),
           ],
         ),
