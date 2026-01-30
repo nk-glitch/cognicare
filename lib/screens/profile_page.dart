@@ -1,29 +1,181 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../services/auth_service.dart';
 
 class ProfilePage extends StatefulWidget {
-  final String userName;
-  final String? phone;
-  final String? address;
   final bool isCaretaker;
-  final List<NotificationItem> notifications;
 
   const ProfilePage({
-    Key? key,
-    required this.userName,
-    this.phone,
-    this.address,
-    this.isCaretaker = false,
-    this.notifications = const [],
-  }) : super(key: key);
+    super.key,
+    required this.isCaretaker,
+  });
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
 }
 
 class _ProfilePageState extends State<ProfilePage> {
+  final AuthService _authService = AuthService();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  String userName = "Loading...";
+  String? phone;
+  String? address;
+  List<NotificationItem> notifications = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserData();
+  }
+
+  Future<void> _loadUserData() async {
+    try {
+      final user = _authService.currentUser;
+      if (user != null) {
+        final userData = await _authService.getUserData(user.uid);
+        if (userData != null) {
+          setState(() {
+            userName = '${userData['firstName']} ${userData['lastName']}';
+            phone = userData['phone'];
+          });
+        }
+
+        // Load patient-specific data
+        if (!widget.isCaretaker) {
+          final patientData = await _authService.getPatientData(user.uid);
+          if (patientData != null) {
+            setState(() {
+              address = patientData['address'];
+            });
+          }
+        }
+
+        // Load notifications (connection requests)
+        await _loadNotifications(user.uid);
+      }
+    } catch (e) {
+      print('Error loading user data: $e');
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _loadNotifications(String userId) async {
+    try {
+      // Load patient-caretaker relationship requests
+      final snapshot = await _firestore
+          .collection('patient_caretaker_relationships')
+          .where(widget.isCaretaker ? 'caretakerId' : 'patientId', isEqualTo: userId)
+          .where('status', isEqualTo: 'pending')
+          .get();
+
+      List<NotificationItem> newNotifications = [];
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        final otherUserId = widget.isCaretaker
+            ? data['patientId']
+            : data['caretakerId'];
+
+        final otherUserData = await _authService.getUserData(otherUserId);
+        if (otherUserData != null) {
+          final otherUserName = '${otherUserData['firstName']} ${otherUserData['lastName']}';
+
+          newNotifications.add(NotificationItem.connectionRequest(
+            fromName: otherUserName,
+            isCaretaker: widget.isCaretaker,
+            requestId: doc.id,
+            fromUserId: otherUserId,
+            timestamp: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+          ));
+        }
+      }
+
+      setState(() {
+        notifications = newNotifications;
+      });
+    } catch (e) {
+      print('Error loading notifications: $e');
+    }
+  }
+
+  Future<void> _acceptRequest(NotificationItem notification) async {
+    try {
+      // Update relationship status
+      await _firestore
+          .collection('patient_caretaker_relationships')
+          .doc(notification.requestId)
+          .update({
+        'status': 'accepted',
+        'acceptedAt': FieldValue.serverTimestamp(),
+      });
+
+      // If patient is accepting, add caretaker to their caretakers array
+      if (!widget.isCaretaker) {
+        // Update patient's document with caretaker reference (optional)
+      }
+
+      // Reload notifications
+      await _loadUserData();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Connection request accepted!'),
+            backgroundColor: Color(0xFF8FA9C9),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error accepting request: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to accept request: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _rejectRequest(NotificationItem notification) async {
+    try {
+      await _firestore
+          .collection('patient_caretaker_relationships')
+          .doc(notification.requestId)
+          .delete();
+
+      await _loadUserData();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Connection request rejected'),
+            backgroundColor: Colors.grey,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error rejecting request: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        backgroundColor: Color(0xFFF5E6E8),
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFF5E6E8),
       body: SafeArea(
@@ -83,7 +235,7 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
           ),
           Text(
-            DateFormat('MMMM dd, yyyy').format(DateTime.now()),
+            DateFormat('MMM dd, yyyy').format(DateTime.now()),
             style: const TextStyle(
               fontSize: 14,
               color: Color(0xFF5A4046),
@@ -125,7 +277,7 @@ class _ProfilePageState extends State<ProfilePage> {
         children: [
           Expanded(
             child: Text(
-              widget.userName,
+              userName,
               style: const TextStyle(
                 fontSize: 32,
                 fontWeight: FontWeight.bold,
@@ -189,11 +341,13 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
           ),
           const SizedBox(height: 20),
-          _buildInfoRow('name:', widget.userName),
+          _buildInfoRow('name:', userName),
           const SizedBox(height: 12),
-          _buildInfoRow('phone:', widget.phone ?? 'Not provided'),
-          const SizedBox(height: 12),
-          _buildInfoRow('address:', widget.address ?? 'Not provided'),
+          _buildInfoRow('phone:', phone ?? 'Not provided'),
+          if (!widget.isCaretaker) ...[
+            const SizedBox(height: 12),
+            _buildInfoRow('address:', address ?? 'Not provided'),
+          ],
         ],
       ),
     );
@@ -224,7 +378,7 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Widget _buildInboxCard() {
-    final unreadCount = widget.notifications.where((n) => !n.isRead).length;
+    final unreadCount = notifications.where((n) => !n.isRead).length;
 
     return Column(
       children: [
@@ -275,7 +429,7 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
         ),
         const SizedBox(height: 16),
-        if (widget.notifications.isEmpty)
+        if (notifications.isEmpty)
           _buildEmptyInbox()
         else
           _buildNotificationsList(),
@@ -318,23 +472,23 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Widget _buildNotificationsList() {
     return Column(
-      children: widget.notifications.map((notification) {
+      children: notifications.map((notification) {
         return _buildNotificationItem(notification);
       }).toList(),
     );
   }
 
   Widget _buildNotificationItem(NotificationItem notification) {
+    final isRequest = notification.type == NotificationType.connectionRequest;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: notification.isRead 
-            ? Colors.white 
-            : const Color(0xFFFFF9E6),
+        color: notification.isRead ? Colors.white : const Color(0xFFFFF9E6),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: notification.isRead 
-              ? const Color(0xFFE8C4C8) 
+          color: notification.isRead
+              ? const Color(0xFFE8C4C8)
               : const Color(0xFFFFD700),
           width: 2,
         ),
@@ -346,25 +500,23 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
         ],
       ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () => _markAsRead(notification),
-          borderRadius: BorderRadius.circular(20),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: _getNotificationColor(notification.type).withOpacity(0.2),
+                    color: const Color(0xFF8FA9C9).withOpacity(0.2),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(
-                    _getNotificationIcon(notification.type),
-                    color: _getNotificationColor(notification.type),
+                  child: const Icon(
+                    Icons.person_add,
+                    color: Color(0xFF8FA9C9),
                     size: 24,
                   ),
                 ),
@@ -381,8 +533,8 @@ class _ProfilePageState extends State<ProfilePage> {
                               notification.title,
                               style: TextStyle(
                                 fontSize: 16,
-                                fontWeight: notification.isRead 
-                                    ? FontWeight.w600 
+                                fontWeight: notification.isRead
+                                    ? FontWeight.w600
                                     : FontWeight.bold,
                                 color: const Color(0xFF3D2C31),
                               ),
@@ -421,28 +573,44 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
               ],
             ),
-          ),
+            if (isRequest && !notification.isRead) ...[
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => _acceptRequest(notification),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF8FA9C9),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text('Accept'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => _rejectRequest(notification),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF3D2C31),
+                        side: const BorderSide(color: Color(0xFF3D2C31)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text('Reject'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
         ),
       ),
     );
-  }
-
-  IconData _getNotificationIcon(NotificationType type) {
-    switch (type) {
-      case NotificationType.scheduleUpdate:
-        return Icons.calendar_today;
-      case NotificationType.patientAdded:
-        return Icons.person_add;
-    }
-  }
-
-  Color _getNotificationColor(NotificationType type) {
-    switch (type) {
-      case NotificationType.scheduleUpdate:
-        return const Color(0xFF8FA9C9);
-      case NotificationType.patientAdded:
-        return const Color(0xFFD47A8A);
-    }
   }
 
   String _formatTimestamp(DateTime timestamp) {
@@ -459,18 +627,12 @@ class _ProfilePageState extends State<ProfilePage> {
       return DateFormat('MMM dd, yyyy').format(timestamp);
     }
   }
-
-  void _markAsRead(NotificationItem notification) {
-    setState(() {
-      notification.isRead = true;
-    });
-  }
 }
 
 // Notification Models
 enum NotificationType {
+  connectionRequest,
   scheduleUpdate,
-  patientAdded,
 }
 
 class NotificationItem {
@@ -478,6 +640,8 @@ class NotificationItem {
   final String message;
   final NotificationType type;
   final DateTime timestamp;
+  final String? requestId;
+  final String? fromUserId;
   bool isRead;
 
   NotificationItem({
@@ -485,10 +649,30 @@ class NotificationItem {
     required this.message,
     required this.type,
     required this.timestamp,
+    this.requestId,
+    this.fromUserId,
     this.isRead = false,
   });
 
-  // Factory constructors for different notification types
+  factory NotificationItem.connectionRequest({
+    required String fromName,
+    required bool isCaretaker,
+    required String requestId,
+    required String fromUserId,
+    DateTime? timestamp,
+  }) {
+    return NotificationItem(
+      title: 'Connection Request',
+      message: isCaretaker
+          ? '$fromName wants to be added to your care list'
+          : '$fromName wants to add you as their patient',
+      type: NotificationType.connectionRequest,
+      timestamp: timestamp ?? DateTime.now(),
+      requestId: requestId,
+      fromUserId: fromUserId,
+    );
+  }
+
   factory NotificationItem.scheduleUpdate({
     required String patientName,
     required String updatedBy,
@@ -498,19 +682,6 @@ class NotificationItem {
       title: 'Schedule Updated',
       message: '$updatedBy updated the schedule for $patientName',
       type: NotificationType.scheduleUpdate,
-      timestamp: timestamp ?? DateTime.now(),
-    );
-  }
-
-  factory NotificationItem.patientAdded({
-    required String caretakerName,
-    required String patientName,
-    DateTime? timestamp,
-  }) {
-    return NotificationItem(
-      title: 'New Patient Added',
-      message: '$caretakerName added you to their care list',
-      type: NotificationType.patientAdded,
       timestamp: timestamp ?? DateTime.now(),
     );
   }
