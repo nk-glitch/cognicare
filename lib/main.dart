@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:cognicare/screens/caretaker_home_screen.dart';
 
-void main() {
-  runApp(const DementiaCareApp());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+  runApp(const CogniCareApp());
 }
 
-class DementiaCareApp extends StatelessWidget {
-  const DementiaCareApp({super.key});
+class CogniCareApp extends StatelessWidget {
+  const CogniCareApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -14,7 +18,7 @@ class DementiaCareApp extends StatelessWidget {
       title: 'CogniCare',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.blue,
+          seedColor: Colors.brown,
           brightness: Brightness.light,
         ),
         useMaterial3: true,
