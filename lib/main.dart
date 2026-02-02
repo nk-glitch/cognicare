@@ -40,17 +40,44 @@ class CogniCareApp extends StatelessWidget {
   }
 }
 
-class AuthWrapper extends StatelessWidget {
+class AuthWrapper extends StatefulWidget {
   const AuthWrapper({super.key});
 
   @override
+  State<AuthWrapper> createState() => _AuthWrapperState();
+}
+
+class _AuthWrapperState extends State<AuthWrapper> {
+  final AuthService _authService = AuthService();
+  Future<Map<String, dynamic>>? _authFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    // Defer auth check to after first frame so startup doesn't overload main thread
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() {
+        _authFuture = _authService.checkAuthStatus();
+      });
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final authService = AuthService();
+    // Show loading until we've started the auth check
+    if (_authFuture == null) {
+      return const Scaffold(
+        backgroundColor: Color(0xFFF5E6D3),
+        body: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
 
     return FutureBuilder<Map<String, dynamic>>(
-      future: authService.checkAuthStatus(),
+      future: _authFuture,
       builder: (context, snapshot) {
-        // Show loading while checking auth
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
             backgroundColor: Color(0xFFF5E6D3),
@@ -60,14 +87,12 @@ class AuthWrapper extends StatelessWidget {
           );
         }
 
-        // Check if user is logged in
         final authStatus = snapshot.data ?? {'isLoggedIn': false};
 
         if (!authStatus['isLoggedIn']) {
           return const LoginPage();
         }
 
-        // User is logged in - route based on type and setup status
         final userType = authStatus['userType'];
         final setupComplete = authStatus['setupComplete'];
         final uid = authStatus['uid'];
