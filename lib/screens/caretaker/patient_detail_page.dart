@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'location_map_page.dart';
+import '../games/games_hub_page.dart';
 
 class PatientDetailPage extends StatefulWidget {
   final String patientId;
@@ -557,7 +558,15 @@ class _PatientDetailPageState extends State<PatientDetailPage>
         );
         break;
       case 3:
-        _showComingSoon('Activities');
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => GamesHubPage(
+              playerName: widget.patientName,
+              isCaretaker: true,
+            ),
+          ),
+        );
         break;
       case 4:
         Navigator.pop(context);
