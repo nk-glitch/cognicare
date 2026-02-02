@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/auth_service.dart';
+import '../../services/location_service.dart';
 import '../profile_page.dart';
 import '../auth/login_page.dart';
 
@@ -17,6 +18,7 @@ class _PatientHomePageState extends State<PatientHomePage>
     with SingleTickerProviderStateMixin {
   final AuthService _authService = AuthService();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final LocationService _locationService = LocationService();
 
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
@@ -28,6 +30,8 @@ class _PatientHomePageState extends State<PatientHomePage>
   String currentActivity = "No activity scheduled";
   List<Map<String, dynamic>> reminders = [];
   bool _isLoading = true;
+  bool _isSharingLocation = false;
+  bool _locationShared = false;
 
   @override
   void initState() {
@@ -45,6 +49,62 @@ class _PatientHomePageState extends State<PatientHomePage>
     );
 
     _loadPatientData();
+    // Run location share after UI is ready so it doesn't block or freeze the app
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.delayed(const Duration(milliseconds: 1500), () {
+        if (!mounted) return;
+        _shareLocationInBackground();
+      });
+    });
+  }
+
+  /// Share location in background; never blocks UI or crashes the app.
+  Future<void> _shareLocationInBackground() async {
+    try {
+      final user = _authService.currentUser;
+      if (user != null) {
+        final ok = await _locationService.shareLocation(user.uid);
+        if (mounted && ok) setState(() => _locationShared = true);
+      }
+    } catch (e) {
+      print('Location share error (non-fatal): $e');
+    }
+  }
+
+  /// User taps "Share location" – request permission and share (visible ask).
+  Future<void> _onShareLocationTap() async {
+    final user = _authService.currentUser;
+    if (user == null) return;
+    if (_isSharingLocation) return;
+    setState(() => _isSharingLocation = true);
+    try {
+      final ok = await _locationService.shareLocation(user.uid);
+      if (mounted) {
+        setState(() {
+          _locationShared = ok;
+          _isSharingLocation = false;
+        });
+        if (!ok) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Couldn\'t get location. Turn on GPS, try outdoors, and tap Allow location again.',
+              ),
+              backgroundColor: Color(0xFF8FA9C9),
+              duration: Duration(seconds: 5),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('Location share error: $e');
+      if (mounted) {
+        setState(() => _isSharingLocation = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Location error: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _loadPatientData() async {
@@ -69,6 +129,7 @@ class _PatientHomePageState extends State<PatientHomePage>
 
         // Load today's reminders
         await _loadTodaysReminders(user.uid);
+        // Location is shared in background via _shareLocationInBackground() after UI loads
       }
     } catch (e) {
       print('Error loading patient data: $e');
@@ -166,6 +227,8 @@ class _PatientHomePageState extends State<PatientHomePage>
                 _buildEmergencyButton(),
                 const SizedBox(height: 20),
                 _buildWelcomeCard(),
+                const SizedBox(height: 20),
+                _buildLocationShareCard(),
                 const SizedBox(height: 20),
                 _buildActivityCard(),
                 const SizedBox(height: 20),
@@ -344,6 +407,103 @@ class _PatientHomePageState extends State<PatientHomePage>
               ],
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLocationShareCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFF8FA9C9).withOpacity(0.5), width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF8FA9C9).withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.location_on,
+                  size: 28,
+                  color: Color(0xFF8FA9C9),
+                ),
+              ),
+              const SizedBox(width: 14),
+              const Expanded(
+                child: Text(
+                  'Share location with caretaker',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF3D2C31),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Allow location so your caretaker can see where you are on the map.',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey.shade700,
+              height: 1.3,
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _isSharingLocation ? null : _onShareLocationTap,
+              icon: _isSharingLocation
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : Icon(
+                      _locationShared ? Icons.check_circle : Icons.my_location,
+                      color: Colors.white,
+                      size: 22,
+                    ),
+              label: Text(
+                _isSharingLocation
+                    ? 'Getting location...'
+                    : _locationShared
+                        ? 'Location shared'
+                        : 'Allow location',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF8FA9C9),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );

@@ -54,6 +54,14 @@ class _CaretakerHomePageState extends State<CaretakerHomePage>
     _animationController.forward();
   }
 
+  // Refresh data - can be called after returning from other screens
+  Future<void> _refreshData() async {
+    setState(() {
+      _isLoading = true;
+    });
+    await _loadCaretakerData();
+  }
+
   Future<void> _loadCaretakerData() async {
     try {
       final user = _authService.currentUser;
@@ -90,35 +98,35 @@ class _CaretakerHomePageState extends State<CaretakerHomePage>
           print('DEBUG: Patient user data: $patientUserData');
           print('DEBUG: Patient data: $patientData');
 
-          if (patientUserData != null) {
-            final patientName = '${patientUserData['firstName']} ${patientUserData['lastName']}';
-            final location = patientData?['address'] ?? 'No location set';
+          final patientName = patientUserData != null
+              ? '${patientUserData['firstName']} ${patientUserData['lastName']}'
+              : 'Patient';
+          final location = patientData?['address'] ?? 'No location set';
 
-            // Get today's reminders for this patient
-            final now = DateTime.now();
-            final startOfDay = DateTime(now.year, now.month, now.day);
-            final endOfDay = DateTime(now.year, now.month, now.day, 23, 59, 59);
+          // Get today's reminders for this patient
+          final now = DateTime.now();
+          final startOfDay = DateTime(now.year, now.month, now.day);
+          final endOfDay = DateTime(now.year, now.month, now.day, 23, 59, 59);
 
-            final remindersSnapshot = await _firestore
-                .collection('reminders')
-                .where('patientId', isEqualTo: patientId)
-                .where('time', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
-                .where('time', isLessThanOrEqualTo: Timestamp.fromDate(endOfDay))
-                .get();
+          final remindersSnapshot = await _firestore
+              .collection('reminders')
+              .where('patientId', isEqualTo: patientId)
+              .where('time', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
+              .where('time', isLessThanOrEqualTo: Timestamp.fromDate(endOfDay))
+              .get();
 
-            final remindersList = remindersSnapshot.docs
-                .map((doc) => doc.data()['title'] as String)
-                .toList();
+          final remindersList = remindersSnapshot.docs
+              .map((doc) => doc.data()['title'] as String)
+              .toList();
 
-            print('DEBUG: Found ${remindersList.length} reminders for patient');
+          print('DEBUG: Found ${remindersList.length} reminders for patient');
 
-            loadedPatients.add({
-              'patientId': patientId,
-              'name': patientName,
-              'location': location,
-              'reminders': remindersList,
-            });
-          }
+          loadedPatients.add({
+            'patientId': patientId,
+            'name': patientName,
+            'location': location,
+            'reminders': remindersList,
+          });
         }
 
         print('DEBUG: Total patients loaded: ${loadedPatients.length}');
@@ -127,10 +135,15 @@ class _CaretakerHomePageState extends State<CaretakerHomePage>
           patients = loadedPatients;
           _isLoading = false;
         });
+      } else {
+        setState(() => _isLoading = false);
       }
     } catch (e, stackTrace) {
       print('Error loading caretaker data: $e');
       print('Stack trace: $stackTrace');
+      if (e.toString().contains('index') || e.toString().contains('Index')) {
+        print('Firebase: Create the composite index suggested in the error above in Firebase Console > Firestore > Indexes');
+      }
       setState(() {
         _isLoading = false;
       });
@@ -258,13 +271,15 @@ class _CaretakerHomePageState extends State<CaretakerHomePage>
                 ),
               ),
               InkWell(
-                onTap: () {
-                  Navigator.push(
+                onTap: () async {
+                  await Navigator.push(
                     context,
                     MaterialPageRoute(
                       builder: (context) => const ProfilePage(isCaretaker: true),
                     ),
                   );
+                  // Refresh data when returning from profile
+                  _refreshData();
                 },
                 borderRadius: BorderRadius.circular(35),
                 child: Container(
@@ -324,57 +339,89 @@ class _CaretakerHomePageState extends State<CaretakerHomePage>
 
   Widget _buildPatientList() {
     if (patients.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.people_outline,
-              size: 80,
-              color: Colors.grey.shade400,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'No patients yet',
-              style: TextStyle(
-                fontSize: 20,
-                color: Colors.grey.shade600,
-                fontWeight: FontWeight.w500,
+      return RefreshIndicator(
+        onRefresh: _refreshData,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: Container(
+            height: MediaQuery.of(context).size.height * 0.6,
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.people_outline,
+                    size: 80,
+                    color: Colors.grey.shade400,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No patients yet',
+                    style: TextStyle(
+                      fontSize: 20,
+                      color: Colors.grey.shade600,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Tap the button below to add a patient',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey.shade500,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Patients appear here after they accept your\nconnection request from their Profile.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade500,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Pull down to refresh',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade400,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Tap the button below to add a patient',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade500,
-              ),
-            ),
-          ],
+          ),
         ),
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(20),
-      itemCount: patients.length,
-      itemBuilder: (context, index) {
-        return TweenAnimationBuilder<double>(
-          tween: Tween(begin: 0.0, end: 1.0),
-          duration: Duration(milliseconds: 300 + (index * 100)),
-          curve: Curves.easeOutCubic,
-          builder: (context, value, child) {
-            return Transform.scale(
-              scale: value,
-              child: Opacity(
-                opacity: value,
-                child: child,
-              ),
-            );
-          },
-          child: _buildPatientCard(patients[index]),
-        );
-      },
+    return RefreshIndicator(
+      onRefresh: _refreshData,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(20),
+        physics: const AlwaysScrollableScrollPhysics(),
+        itemCount: patients.length,
+        itemBuilder: (context, index) {
+          return TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0.0, end: 1.0),
+            duration: Duration(milliseconds: 300 + (index * 100)),
+            curve: Curves.easeOutCubic,
+            builder: (context, value, child) {
+              return Transform.scale(
+                scale: value,
+                child: Opacity(
+                  opacity: value,
+                  child: child,
+                ),
+              );
+            },
+            child: _buildPatientCard(patients[index]),
+          );
+        },
+      ),
     );
   }
 
@@ -400,9 +447,14 @@ class _CaretakerHomePageState extends State<CaretakerHomePage>
         color: Colors.transparent,
         child: InkWell(
           onTap: () {
-            // TODO: Navigate to patient details
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Patient details for $name')),
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => PatientDetailPage(
+                  patientId: patient['patientId'] as String,
+                  patientName: name,
+                ),
+              ),
             );
           },
           borderRadius: BorderRadius.circular(24),
