@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'location_map_page.dart';
 
 class PatientDetailPage extends StatefulWidget {
   final String patientId;
@@ -342,13 +343,23 @@ class _PatientDetailPageState extends State<PatientDetailPage>
         ),
         const SizedBox(width: 16),
         Expanded(
-          child: _buildActionCard(
-            icon: Icons.location_on,
-            label: 'Location',
-            height: 280,
-            isLarge: true,
-            onTap: () => _showComingSoon('Location Tracking'),
-          ),
+          child:               _buildActionCard(
+                icon: Icons.location_on,
+                label: 'Location',
+                height: 280,
+                isLarge: true,
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => LocationMapPage(
+                        patientId: widget.patientId,
+                        patientName: widget.patientName,
+                      ),
+                    ),
+                  );
+                },
+              ),
         ),
       ],
     );
@@ -535,7 +546,15 @@ class _PatientDetailPageState extends State<PatientDetailPage>
         _showComingSoon('Calendar');
         break;
       case 1:
-        _showComingSoon('Location');
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => LocationMapPage(
+              patientId: widget.patientId,
+              patientName: widget.patientName,
+            ),
+          ),
+        );
         break;
       case 3:
         _showComingSoon('Activities');
