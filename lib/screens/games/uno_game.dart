@@ -4,7 +4,7 @@ import 'dart:math';
 class UnoGame extends StatefulWidget {
   final String playerName;
 
-  const UnoGame({super.key, required this.playerName});
+  const UnoGame({Key? key, required this.playerName}) : super(key: key);
 
   @override
   State<UnoGame> createState() => _UnoGameState();
@@ -32,11 +32,13 @@ class _UnoGameState extends State<UnoGame> {
     _createDeck();
     _shuffleDeck();
 
+    // Deal cards
     for (int i = 0; i < 7; i++) {
       playerHand.add(deck.removeLast());
       aiHand.add(deck.removeLast());
     }
 
+    // Set first card
     currentCard = deck.removeLast();
 
     setState(() {
@@ -48,6 +50,7 @@ class _UnoGameState extends State<UnoGame> {
     const colors = [Colors.red, Colors.blue, Colors.green, Colors.yellow];
     const values = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
 
+    // Create number cards
     for (var color in colors) {
       for (var value in values) {
         deck.add(UnoCard(color: color, value: value));
@@ -57,6 +60,7 @@ class _UnoGameState extends State<UnoGame> {
       }
     }
 
+    // Add some special cards
     for (var color in colors) {
       deck.add(UnoCard(color: color, value: 'Skip', isSpecial: true));
       deck.add(UnoCard(color: color, value: '+2', isSpecial: true));
@@ -363,41 +367,41 @@ class _UnoGameState extends State<UnoGame> {
           height: 100,
           child: playerHand.isEmpty
               ? const Center(
-                  child: Text(
-                    'No cards!',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Color(0xFF7A6A70),
-                      fontStyle: FontStyle.italic,
-                    ),
-                  ),
-                )
+            child: Text(
+              'No cards!',
+              style: TextStyle(
+                fontSize: 16,
+                color: Color(0xFF7A6A70),
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          )
               : ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  itemCount: playerHand.length,
-                  itemBuilder: (context, index) {
-                    final canPlay = _canPlayCard(playerHand[index]);
-                    return GestureDetector(
-                      onTap: isPlayerTurn && !gameOver && canPlay
-                          ? () => _playCard(index)
-                          : null,
-                      child: Container(
-                        margin: const EdgeInsets.only(right: 8),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(12),
-                          border: canPlay && isPlayerTurn && !gameOver
-                              ? Border.all(color: Colors.green, width: 3)
-                              : null,
-                        ),
-                        child: Opacity(
-                          opacity: (!canPlay || !isPlayerTurn || gameOver) ? 0.5 : 1.0,
-                          child: _buildCardWidget(playerHand[index]),
-                        ),
-                      ),
-                    );
-                  },
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            itemCount: playerHand.length,
+            itemBuilder: (context, index) {
+              final canPlay = _canPlayCard(playerHand[index]);
+              return GestureDetector(
+                onTap: isPlayerTurn && !gameOver && canPlay
+                    ? () => _playCard(index)
+                    : null,
+                child: Container(
+                  margin: const EdgeInsets.only(right: 8),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    border: canPlay && isPlayerTurn && !gameOver
+                        ? Border.all(color: Colors.green, width: 3)
+                        : null,
+                  ),
+                  child: Opacity(
+                    opacity: (!canPlay || !isPlayerTurn || gameOver) ? 0.5 : 1.0,
+                    child: _buildCardWidget(playerHand[index]),
+                  ),
                 ),
+              );
+            },
+          ),
         ),
       ],
     );
@@ -452,8 +456,10 @@ class _UnoGameState extends State<UnoGame> {
         currentCard = card;
         playerHand.removeAt(index);
 
+        // Handle +2 card
         if (card.value == '+2') {
           message = 'AI draws 2 cards!';
+          // Make AI draw 2 cards
           if (deck.length >= 2) {
             aiHand.add(deck.removeLast());
             aiHand.add(deck.removeLast());
@@ -506,8 +512,10 @@ class _UnoGameState extends State<UnoGame> {
         currentCard = playedCard;
         aiHand.removeAt(index);
 
+        // Handle +2 card
         if (playedCard.value == '+2') {
           message = 'AI played +2! You draw 2 cards';
+          // Make player draw 2 cards
           if (deck.length >= 2) {
             playerHand.add(deck.removeLast());
             playerHand.add(deck.removeLast());

@@ -168,23 +168,8 @@ class _CaretakerHomeScreenState extends State<CaretakerHomeScreen>
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => ProfilePage(
-                        userName: caretakerName,
-                        phone: '555-123-4567',
-                        address: '123 Caretaker Street, City, State',
+                      builder: (context) => const ProfilePage(
                         isCaretaker: true,
-                        notifications: [
-                          NotificationItem.scheduleUpdate(
-                            patientName: 'John Smith',
-                            updatedBy: 'You',
-                            timestamp: DateTime.now().subtract(const Duration(hours: 2)),
-                          ),
-                          NotificationItem.patientAdded(
-                            caretakerName: 'Dr. Johnson',
-                            patientName: 'Mary Johnson',
-                            timestamp: DateTime.now().subtract(const Duration(days: 1)),
-                          ),
-                        ],
                       ),
                     ),
                   );

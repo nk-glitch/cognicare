@@ -1,11 +1,14 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
 
 class TicTacToeGame extends StatefulWidget {
   final String playerName;
   final bool vsBot;
 
-  const TicTacToeGame({super.key, required this.playerName, this.vsBot = false});
+  const TicTacToeGame({
+    Key? key,
+    required this.playerName,
+    this.vsBot = false,
+  }) : super(key: key);
 
   @override
   State<TicTacToeGame> createState() => _TicTacToeGameState();
@@ -18,7 +21,6 @@ class _TicTacToeGameState extends State<TicTacToeGame> {
   bool gameOver = false;
   int playerXScore = 0;
   int playerOScore = 0;
-  bool _botThinking = false;
 
   @override
   Widget build(BuildContext context) {
@@ -90,8 +92,6 @@ class _TicTacToeGameState extends State<TicTacToeGame> {
   }
 
   Widget _buildScoreBoard() {
-    final xLabel = widget.vsBot ? 'You' : 'Player X';
-    final oLabel = widget.vsBot ? 'Bot' : 'Player O';
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -108,13 +108,13 @@ class _TicTacToeGameState extends State<TicTacToeGame> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _buildScoreItem(xLabel, playerXScore, const Color(0xFF8FA9C9)),
+          _buildScoreItem('Player X', playerXScore, const Color(0xFF8FA9C9)),
           Container(
             width: 2,
             height: 40,
             color: const Color(0xFFE8C4C8),
           ),
-          _buildScoreItem(oLabel, playerOScore, const Color(0xFFD47A8A)),
+          _buildScoreItem('Player O', playerOScore, const Color(0xFFD47A8A)),
         ],
       ),
     );
@@ -145,37 +145,6 @@ class _TicTacToeGameState extends State<TicTacToeGame> {
   }
 
   Widget _buildCurrentPlayerIndicator() {
-    if (_botThinking) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-        decoration: BoxDecoration(
-          color: const Color(0xFFD47A8A),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: Colors.white,
-              ),
-            ),
-            SizedBox(width: 12),
-            Text(
-              'Bot is thinking...',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
     if (gameOver) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
@@ -246,9 +215,8 @@ class _TicTacToeGameState extends State<TicTacToeGame> {
   }
 
   Widget _buildCell(int index) {
-    final isHumanTurn = widget.vsBot ? isPlayerX : true;
     return GestureDetector(
-      onTap: (_botThinking || !isHumanTurn || gameOver) ? null : () => _makeMove(index),
+      onTap: () => _makeMove(index),
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,
@@ -293,74 +261,67 @@ class _TicTacToeGameState extends State<TicTacToeGame> {
   }
 
   void _makeMove(int index) {
-    if (board[index] == '' && !gameOver && !_botThinking) {
+    if (board[index] == '' && !gameOver) {
       setState(() {
         board[index] = isPlayerX ? 'X' : 'O';
         isPlayerX = !isPlayerX;
         _checkWinner();
+
+        // Bot's turn if vsBot mode and game not over
+        if (widget.vsBot && !isPlayerX && !gameOver) {
+          Future.delayed(const Duration(milliseconds: 500), _botMove);
+        }
       });
-      if (widget.vsBot && !gameOver && !isPlayerX) {
-        _scheduleBotMove();
-      }
     }
   }
 
-  void _scheduleBotMove() {
-    setState(() => _botThinking = true);
-    Future.delayed(const Duration(milliseconds: 600), () {
-      if (!mounted || gameOver) return;
-      final move = _getBotMove();
-      if (move != null) {
-        setState(() {
-          board[move] = 'O';
-          isPlayerX = true;
-          _botThinking = false;
-          _checkWinner();
-        });
-      } else {
-        setState(() => _botThinking = false);
-      }
-    });
+  void _botMove() {
+    if (gameOver) return;
+
+    // Simple AI: Try to win, block player, or pick random
+    int? move = _findWinningMove('O') ??
+        _findWinningMove('X') ??
+        _findRandomMove();
+
+    if (move != null) {
+      setState(() {
+        board[move] = 'O';
+        isPlayerX = true;
+        _checkWinner();
+      });
+    }
   }
 
-  int? _getBotMove() {
+  int? _findWinningMove(String player) {
     const winPatterns = [
       [0, 1, 2], [3, 4, 5], [6, 7, 8],
       [0, 3, 6], [1, 4, 7], [2, 5, 8],
       [0, 4, 8], [2, 4, 6],
     ];
-    final empty = <int>[];
-    for (int i = 0; i < 9; i++) if (board[i] == '') empty.add(i);
-    if (empty.isEmpty) return null;
 
-    for (var p in winPatterns) {
-      int oCount = 0, emptyIdx = -1;
-      for (var i in p) {
-        if (board[i] == 'O') oCount++;
-        else if (board[i] == '') emptyIdx = i;
+    for (var pattern in winPatterns) {
+      var values = pattern.map((i) => board[i]).toList();
+      if (values.where((v) => v == player).length == 2 && values.contains('')) {
+        return pattern[values.indexOf('')];
       }
-      if (oCount == 2 && emptyIdx >= 0) return emptyIdx;
     }
-    for (var p in winPatterns) {
-      int xCount = 0, emptyIdx = -1;
-      for (var i in p) {
-        if (board[i] == 'X') xCount++;
-        else if (board[i] == '') emptyIdx = i;
-      }
-      if (xCount == 2 && emptyIdx >= 0) return emptyIdx;
+    return null;
+  }
+
+  int? _findRandomMove() {
+    var empty = <int>[];
+    for (int i = 0; i < 9; i++) {
+      if (board[i] == '') empty.add(i);
     }
-    if (board[4] == '') return 4;
-    const corners = [0, 2, 6, 8];
-    final cornerEmpty = corners.where((i) => board[i] == '').toList();
-    if (cornerEmpty.isNotEmpty) return cornerEmpty[Random().nextInt(cornerEmpty.length)];
-    return empty[Random().nextInt(empty.length)];
+    return empty.isEmpty ? null : empty[DateTime.now().millisecond % empty.length];
   }
 
   void _checkWinner() {
+    // Winning combinations
     const winPatterns = [
-      [0, 1, 2], [3, 4, 5], [6, 7, 8],
-      [0, 3, 6], [1, 4, 7], [2, 5, 8],
-      [0, 4, 8], [2, 4, 6],
+      [0, 1, 2], [3, 4, 5], [6, 7, 8], // Rows
+      [0, 3, 6], [1, 4, 7], [2, 5, 8], // Columns
+      [0, 4, 8], [2, 4, 6], // Diagonals
     ];
 
     for (var pattern in winPatterns) {
@@ -380,6 +341,7 @@ class _TicTacToeGameState extends State<TicTacToeGame> {
       }
     }
 
+    // Check for draw
     if (!board.contains('')) {
       setState(() {
         winner = 'Draw';
@@ -394,7 +356,6 @@ class _TicTacToeGameState extends State<TicTacToeGame> {
       isPlayerX = true;
       winner = '';
       gameOver = false;
-      _botThinking = false;
     });
   }
 }

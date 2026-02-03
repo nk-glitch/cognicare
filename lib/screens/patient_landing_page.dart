@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/patient_model.dart';
 import 'profile_page.dart';
+import 'games_hub_page.dart';
 
 class PatientLandingPage extends StatefulWidget {
   final Patient patient;
@@ -75,6 +76,8 @@ class _PatientLandingPageState extends State<PatientLandingPage>
                 _buildWelcomeCard(),
                 const SizedBox(height: 20),
                 _buildActivityCard(),
+                const SizedBox(height: 20),
+                _buildGamesButton(),
                 const SizedBox(height: 20),
                 _buildRemindersCard(),
               ],
@@ -153,17 +156,7 @@ class _PatientLandingPageState extends State<PatientLandingPage>
                     context,
                     MaterialPageRoute(
                       builder: (context) => ProfilePage(
-                        userName: widget.patient.name,
-                        phone: widget.emergencyContactPhone,
-                        address: widget.patient.location,
                         isCaretaker: false,
-                        notifications: [
-                          NotificationItem.scheduleUpdate(
-                            patientName: widget.patient.name,
-                            updatedBy: 'Sarah Smith',
-                            timestamp: DateTime.now().subtract(const Duration(minutes: 30)),
-                          ),
-                        ],
                       ),
                     ),
                   );
@@ -311,6 +304,101 @@ class _PatientLandingPageState extends State<PatientLandingPage>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildGamesButton() {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF8FA9C9).withOpacity(0.7),
+            const Color(0xFFD47A8A).withOpacity(0.7),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => GamesHubPage(
+                  playerName: widget.patient.name,
+                  isCaretaker: false,
+                ),
+              ),
+            );
+          },
+          borderRadius: BorderRadius.circular(20),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.games,
+                    size: 32,
+                    color: Color(0xFF8FA9C9),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Play Games',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        'Connect and have fun!',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.arrow_forward,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

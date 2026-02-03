@@ -1,18 +1,18 @@
 import 'package:flutter/material.dart';
-import 'tic_tac_toe_game.dart';
-import 'checkers_game.dart';
-import 'connect_four_game.dart';
-import 'uno_game.dart';
+import 'games/tic_tac_toe_game.dart';
+import 'games/checkers_game.dart';
+import 'games/connect_four_game.dart';
+import 'games/uno_game.dart';
 
 class GamesHubPage extends StatefulWidget {
   final String playerName;
   final bool isCaretaker;
 
   const GamesHubPage({
-    super.key,
+    Key? key,
     required this.playerName,
     this.isCaretaker = false,
-  });
+  }) : super(key: key);
 
   @override
   State<GamesHubPage> createState() => _GamesHubPageState();
@@ -184,68 +184,6 @@ class _GamesHubPageState extends State<GamesHubPage>
     );
   }
 
-  void _showPlayModeChoice(String gameName, Widget Function(bool vsBot) buildGame) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(24),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        child: SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                gameName,
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF3D2C31),
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Choose how to play',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Color(0xFF7A6A70),
-                ),
-              ),
-              const SizedBox(height: 20),
-              ListTile(
-                leading: const Icon(Icons.smart_toy, color: Color(0xFF8FA9C9)),
-                title: const Text('Play with Bot'),
-                subtitle: const Text('Play against the computer'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _navigateToGame(context, buildGame(true));
-                },
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              ListTile(
-                leading: const Icon(Icons.people, color: Color(0xFFD47A8A)),
-                title: const Text('Play with Friend'),
-                subtitle: const Text('Two players on one device'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _navigateToGame(context, buildGame(false));
-                },
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildGamesGrid() {
     final games = [
       GameInfo(
@@ -253,10 +191,10 @@ class _GamesHubPageState extends State<GamesHubPage>
         icon: Icons.grid_3x3,
         color: const Color(0xFF8FA9C9),
         difficulty: 'Easy',
-        players: 'Bot or 2P',
-        onTap: () => _showPlayModeChoice(
-          'Tic Tac Toe',
-              (vsBot) => TicTacToeGame(playerName: widget.playerName, vsBot: vsBot),
+        players: '2 Players',
+        onTap: () => _navigateToGame(
+          context,
+          TicTacToeGame(playerName: widget.playerName),
         ),
       ),
       GameInfo(
@@ -264,10 +202,10 @@ class _GamesHubPageState extends State<GamesHubPage>
         icon: Icons.grid_4x4,
         color: const Color(0xFFFFB347),
         difficulty: 'Easy',
-        players: 'Bot or 2P',
-        onTap: () => _showPlayModeChoice(
-          'Connect Four',
-              (vsBot) => ConnectFourGame(playerName: widget.playerName, vsBot: vsBot),
+        players: '2 Players',
+        onTap: () => _navigateToGame(
+          context,
+          ConnectFourGame(playerName: widget.playerName),
         ),
       ),
       GameInfo(
@@ -275,10 +213,10 @@ class _GamesHubPageState extends State<GamesHubPage>
         icon: Icons.casino,
         color: const Color(0xFFD47A8A),
         difficulty: 'Medium',
-        players: 'Bot or 2P',
-        onTap: () => _showPlayModeChoice(
-          'Checkers',
-              (vsBot) => CheckersGame(playerName: widget.playerName, vsBot: vsBot),
+        players: '2 Players',
+        onTap: () => _navigateToGame(
+          context,
+          CheckersGame(playerName: widget.playerName),
         ),
       ),
       GameInfo(
@@ -286,7 +224,7 @@ class _GamesHubPageState extends State<GamesHubPage>
         icon: Icons.style,
         color: const Color(0xFF9B59B6),
         difficulty: 'Medium',
-        players: 'Vs AI',
+        players: '2-4 Players',
         onTap: () => _navigateToGame(
           context,
           UnoGame(playerName: widget.playerName),
