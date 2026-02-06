@@ -327,6 +327,7 @@ class _PatientDetailPageState extends State<PatientDetailPage>
       children: [
         Expanded(
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _buildActionCard(
                 icon: Icons.calendar_month,
