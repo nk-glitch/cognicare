@@ -9,7 +9,6 @@ import '../../services/location_service.dart';
 import '../../services/notification_service.dart';
 import '../profile_page.dart';
 import '../auth/login_page.dart';
-import '../games/games_hub_page.dart';
 
 class PatientHomePage extends StatefulWidget {
   const PatientHomePage({super.key});
@@ -390,8 +389,6 @@ class _PatientHomePageState extends State<PatientHomePage>
                   const SizedBox(height: 20),
                   _buildActivityCard(),
                   const SizedBox(height: 20),
-                  _buildGamesCard(),
-                  const SizedBox(height: 20),
                   _buildRemindersCard(),
                 ],
               ),
@@ -715,70 +712,6 @@ class _PatientHomePageState extends State<PatientHomePage>
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildGamesCard() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFF8FA9C9).withOpacity(0.5), width: 2),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => GamesHubPage(
-                  playerName: patientName,
-                  isCaretaker: false,
-                ),
-              ),
-            );
-          },
-          borderRadius: BorderRadius.circular(20),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF8FA9C9).withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: const Icon(
-                  Icons.games,
-                  size: 36,
-                  color: Color(0xFF8FA9C9),
-                ),
-              ),
-              const SizedBox(width: 16),
-              const Expanded(
-                child: Text(
-                  'Games & Activities',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF3D2C31),
-                  ),
-                ),
-              ),
-              const Icon(Icons.chevron_right, color: Color(0xFF8FA9C9)),
-            ],
-          ),
-        ),
       ),
     );
   }
