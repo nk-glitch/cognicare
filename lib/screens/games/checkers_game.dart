@@ -1,11 +1,14 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
 
 class CheckersGame extends StatefulWidget {
   final String playerName;
   final bool vsBot;
 
-  const CheckersGame({super.key, required this.playerName, this.vsBot = false});
+  const CheckersGame({
+    Key? key,
+    required this.playerName,
+    this.vsBot = false,
+  }) : super(key: key);
 
   @override
   State<CheckersGame> createState() => _CheckersGameState();
@@ -22,7 +25,6 @@ class _CheckersGameState extends State<CheckersGame> {
   int redScore = 0;
   int blackScore = 0;
   List<List<int>> validMoves = [];
-  bool _botThinking = false;
 
   @override
   void initState() {
@@ -31,6 +33,7 @@ class _CheckersGameState extends State<CheckersGame> {
   }
 
   void _initializeBoard() {
+    // Place red pieces (top 3 rows)
     for (int row = 0; row < 3; row++) {
       for (int col = 0; col < boardSize; col++) {
         if ((row + col) % 2 == 1) {
@@ -38,6 +41,8 @@ class _CheckersGameState extends State<CheckersGame> {
         }
       }
     }
+
+    // Place black pieces (bottom 3 rows)
     for (int row = 5; row < boardSize; row++) {
       for (int col = 0; col < boardSize; col++) {
         if ((row + col) % 2 == 1) {
@@ -116,8 +121,6 @@ class _CheckersGameState extends State<CheckersGame> {
   }
 
   Widget _buildScoreBoard() {
-    final redLabel = widget.vsBot ? 'You' : 'Red';
-    final blackLabel = widget.vsBot ? 'Bot' : 'Black';
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -134,13 +137,13 @@ class _CheckersGameState extends State<CheckersGame> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _buildScoreItem(redLabel, redScore, Colors.red.shade400),
+          _buildScoreItem('Red', redScore, Colors.red.shade400),
           Container(
             width: 2,
             height: 40,
             color: const Color(0xFFE8C4C8),
           ),
-          _buildScoreItem(blackLabel, blackScore, Colors.grey.shade800),
+          _buildScoreItem('Black', blackScore, Colors.grey.shade800),
         ],
       ),
     );
@@ -337,17 +340,18 @@ class _CheckersGameState extends State<CheckersGame> {
   }
 
   void _handleTap(int row, int col) {
-    if (gameOver || _botThinking) return;
-    if (widget.vsBot && !isRedPlayer) return;
+    if (gameOver) return;
 
     String piece = board[row][col];
     String currentPlayer = isRedPlayer ? 'R' : 'B';
 
+    // If this is a valid move destination
     if (validMoves.any((move) => move[0] == row && move[1] == col)) {
       _makeMove(row, col);
       return;
     }
 
+    // If selecting a piece
     if (piece.startsWith(currentPlayer)) {
       setState(() {
         selectedRow = row;
@@ -367,23 +371,26 @@ class _CheckersGameState extends State<CheckersGame> {
     List<List<int>> moves = [];
     String piece = board[row][col];
 
+    // Regular moves
     List<List<int>> directions = [];
     if (piece.endsWith('K')) {
-      directions = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
+      directions = [[-1, -1], [-1, 1], [1, -1], [1, 1]]; // Kings move all directions
     } else if (piece.startsWith('R')) {
-      directions = [[1, -1], [1, 1]];
+      directions = [[1, -1], [1, 1]]; // Red moves down
     } else {
-      directions = [[-1, -1], [-1, 1]];
+      directions = [[-1, -1], [-1, 1]]; // Black moves up
     }
 
     for (var dir in directions) {
       int newRow = row + dir[0];
       int newCol = col + dir[1];
 
+      // Regular move
       if (_isValidPosition(newRow, newCol) && board[newRow][newCol] == '') {
         moves.add([newRow, newCol]);
       }
 
+      // Jump move
       int jumpRow = row + (dir[0] * 2);
       int jumpCol = col + (dir[1] * 2);
       int midRow = row + dir[0];
@@ -413,11 +420,13 @@ class _CheckersGameState extends State<CheckersGame> {
       board[toRow][toCol] = movingPiece;
       board[selectedRow!][selectedCol!] = '';
 
+      // Check for king promotion
       if ((toRow == 0 && movingPiece == 'B') ||
           (toRow == boardSize - 1 && movingPiece == 'R')) {
         board[toRow][toCol] = '${movingPiece}K';
       }
 
+      // Check for capture
       if ((toRow - selectedRow!).abs() == 2) {
         int jumpRow = (toRow + selectedRow!) ~/ 2;
         int jumpCol = (toCol + selectedCol!) ~/ 2;
@@ -429,45 +438,35 @@ class _CheckersGameState extends State<CheckersGame> {
       validMoves = [];
       isRedPlayer = !isRedPlayer;
       _checkGameOver();
-    });
-    if (widget.vsBot && !gameOver && !isRedPlayer) {
-      _scheduleBotMove();
-    }
-  }
 
-  void _scheduleBotMove() {
-    setState(() => _botThinking = true);
-    Future.delayed(const Duration(milliseconds: 800), () {
-      if (!mounted || gameOver) {
-        if (mounted) setState(() => _botThinking = false);
-        return;
+      // Bot's turn if vsBot mode
+      if (widget.vsBot && !isRedPlayer && !gameOver) {
+        Future.delayed(const Duration(milliseconds: 800), _botMove);
       }
-      final move = _getBotMove();
-      if (move != null) {
-        selectedRow = move[0];
-        selectedCol = move[1];
-        _makeMove(move[2], move[3]);
-      }
-      if (mounted) setState(() => _botThinking = false);
     });
   }
 
-  List<int>? _getBotMove() {
-    final allMoves = <List<int>>[];
-    for (int r = 0; r < boardSize; r++) {
-      for (int c = 0; c < boardSize; c++) {
-        if (board[r][c].startsWith('B')) {
-          final moves = _getValidMoves(r, c);
-          for (var m in moves) {
-            allMoves.add([r, c, m[0], m[1]]);
+  void _botMove() {
+    if (gameOver) return;
+
+    // Simple AI: find all black pieces and their valid moves
+    for (int row = 0; row < boardSize; row++) {
+      for (int col = 0; col < boardSize; col++) {
+        if (board[row][col].startsWith('B')) {
+          var moves = _getValidMoves(row, col);
+          if (moves.isNotEmpty) {
+            setState(() {
+              selectedRow = row;
+              selectedCol = col;
+              validMoves = moves;
+            });
+            var move = moves[DateTime.now().millisecond % moves.length];
+            _makeMove(move[0], move[1]);
+            return;
           }
         }
       }
     }
-    if (allMoves.isEmpty) return null;
-    final jumps = allMoves.where((m) => (m[0] - m[2]).abs() == 2).toList();
-    if (jumps.isNotEmpty) return jumps[Random().nextInt(jumps.length)];
-    return allMoves[Random().nextInt(allMoves.length)];
   }
 
   void _checkGameOver() {
@@ -506,7 +505,6 @@ class _CheckersGameState extends State<CheckersGame> {
       validMoves = [];
       winner = '';
       gameOver = false;
-      _botThinking = false;
     });
   }
 }

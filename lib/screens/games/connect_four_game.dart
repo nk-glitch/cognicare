@@ -1,11 +1,14 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
 
 class ConnectFourGame extends StatefulWidget {
   final String playerName;
   final bool vsBot;
 
-  const ConnectFourGame({super.key, required this.playerName, this.vsBot = false});
+  const ConnectFourGame({
+    Key? key,
+    required this.playerName,
+    this.vsBot = false,
+  }) : super(key: key);
 
   @override
   State<ConnectFourGame> createState() => _ConnectFourGameState();
@@ -20,7 +23,6 @@ class _ConnectFourGameState extends State<ConnectFourGame> {
   bool gameOver = false;
   int redScore = 0;
   int yellowScore = 0;
-  bool _botThinking = false;
 
   @override
   Widget build(BuildContext context) {
@@ -91,8 +93,6 @@ class _ConnectFourGameState extends State<ConnectFourGame> {
   }
 
   Widget _buildScoreBoard() {
-    final redLabel = widget.vsBot ? 'You' : 'Red';
-    final yellowLabel = widget.vsBot ? 'Bot' : 'Yellow';
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -109,13 +109,13 @@ class _ConnectFourGameState extends State<ConnectFourGame> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _buildScoreItem(redLabel, redScore, Colors.red.shade400),
+          _buildScoreItem('Red', redScore, Colors.red.shade400),
           Container(
             width: 2,
             height: 40,
             color: const Color(0xFFE8C4C8),
           ),
-          _buildScoreItem(yellowLabel, yellowScore, Colors.amber.shade600),
+          _buildScoreItem('Yellow', yellowScore, Colors.amber.shade600),
         ],
       ),
     );
@@ -146,37 +146,6 @@ class _ConnectFourGameState extends State<ConnectFourGame> {
   }
 
   Widget _buildCurrentPlayerIndicator() {
-    if (_botThinking) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-        decoration: BoxDecoration(
-          color: Colors.amber.shade600,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: Colors.white,
-              ),
-            ),
-            SizedBox(width: 12),
-            Text(
-              'Bot is thinking...',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
     if (gameOver) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
@@ -250,6 +219,7 @@ class _ConnectFourGameState extends State<ConnectFourGame> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // Column selector buttons
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: List.generate(cols, (col) {
@@ -258,7 +228,7 @@ class _ConnectFourGameState extends State<ConnectFourGame> {
                     height: 40,
                     child: IconButton(
                       padding: EdgeInsets.zero,
-                      onPressed: (gameOver || _botThinking || (widget.vsBot && !isRedPlayer)) ? null : () => _dropPiece(col),
+                      onPressed: gameOver ? null : () => _dropPiece(col),
                       icon: Icon(
                         Icons.arrow_drop_down,
                         color: gameOver
@@ -271,6 +241,7 @@ class _ConnectFourGameState extends State<ConnectFourGame> {
                 }),
               ),
               const SizedBox(height: 8),
+              // Game board
               ...List.generate(rows, (row) {
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 8),
@@ -307,12 +278,12 @@ class _ConnectFourGameState extends State<ConnectFourGame> {
         shape: BoxShape.circle,
         boxShadow: board[row][col] != ''
             ? [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.2),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-              ]
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ]
             : null,
       ),
     );
@@ -341,8 +312,9 @@ class _ConnectFourGameState extends State<ConnectFourGame> {
   }
 
   void _dropPiece(int col) {
-    if (gameOver || _botThinking) return;
+    if (gameOver) return;
 
+    // Find the lowest empty row in this column
     for (int row = rows - 1; row >= 0; row--) {
       if (board[row][col] == '') {
         setState(() {
@@ -350,103 +322,43 @@ class _ConnectFourGameState extends State<ConnectFourGame> {
           _checkWinner(row, col);
           if (!gameOver) {
             isRedPlayer = !isRedPlayer;
+
+            // Bot's turn if vsBot mode
+            if (widget.vsBot && !isRedPlayer && !gameOver) {
+              Future.delayed(const Duration(milliseconds: 500), _botMove);
+            }
           }
         });
-        if (widget.vsBot && !gameOver && !isRedPlayer) {
-          _scheduleBotDrop();
-        }
         return;
       }
     }
   }
 
-  void _scheduleBotDrop() {
-    setState(() => _botThinking = true);
-    Future.delayed(const Duration(milliseconds: 700), () {
-      if (!mounted || gameOver) {
-        if (mounted) setState(() => _botThinking = false);
-        return;
-      }
-      final col = _getBotColumn();
-      if (col != null) {
-        for (int row = rows - 1; row >= 0; row--) {
-          if (board[row][col] == '') {
-            setState(() {
-              board[row][col] = 'Y';
-              _checkWinner(row, col);
-              if (!gameOver) isRedPlayer = true;
-              _botThinking = false;
-            });
-            return;
-          }
-        }
-      }
-      setState(() => _botThinking = false);
-    });
-  }
+  void _botMove() {
+    if (gameOver) return;
 
-  int? _getBotColumn() {
-    final validCols = <int>[];
-    for (int c = 0; c < cols; c++) {
-      if (board[0][c] == '') validCols.add(c);
+    // Simple AI: random valid column
+    var validCols = <int>[];
+    for (int col = 0; col < cols; col++) {
+      if (board[0][col] == '') validCols.add(col);
     }
-    if (validCols.isEmpty) return null;
 
-    for (int c in validCols) {
-      final r = _getDropRow(c);
-      if (r != null && _wouldWin(r, c, 'Y')) return c;
+    if (validCols.isNotEmpty) {
+      int col = validCols[DateTime.now().millisecond % validCols.length];
+      _dropPiece(col);
     }
-    for (int c in validCols) {
-      final r = _getDropRow(c);
-      if (r != null && _wouldWin(r, c, 'R')) return c;
-    }
-    final centerOrder = [3, 2, 4, 1, 5, 0, 6];
-    for (int c in centerOrder) {
-      if (validCols.contains(c)) return c;
-    }
-    return validCols[Random().nextInt(validCols.length)];
-  }
-
-  int? _getDropRow(int col) {
-    for (int r = rows - 1; r >= 0; r--) {
-      if (board[r][col] == '') return r;
-    }
-    return null;
-  }
-
-  bool _wouldWin(int row, int col, String player) {
-    final boardCopy = board.map((r) => r.toList()).toList();
-    boardCopy[row][col] = player;
-    return _countInDirection(row, col, 0, 1, player, boardCopy) >= 4 ||
-        _countInDirection(row, col, 1, 0, player, boardCopy) >= 4 ||
-        _countInDirection(row, col, 1, 1, player, boardCopy) >= 4 ||
-        _countInDirection(row, col, 1, -1, player, boardCopy) >= 4;
-  }
-
-  int _countInDirection(int row, int col, int dRow, int dCol, String player, List<List<String>> b) {
-    int count = 1;
-    int r = row + dRow, c = col + dCol;
-    while (r >= 0 && r < rows && c >= 0 && c < cols && b[r][c] == player) {
-      count++;
-      r += dRow;
-      c += dCol;
-    }
-    r = row - dRow;
-    c = col - dCol;
-    while (r >= 0 && r < rows && c >= 0 && c < cols && b[r][c] == player) {
-      count++;
-    r -= dRow;
-    c -= dCol;
-    }
-    return count;
   }
 
   void _checkWinner(int row, int col) {
     String player = board[row][col];
 
+    // Check horizontal
     if (_checkDirection(row, col, 0, 1, player) ||
+        // Check vertical
         _checkDirection(row, col, 1, 0, player) ||
+        // Check diagonal /
         _checkDirection(row, col, 1, 1, player) ||
+        // Check diagonal \
         _checkDirection(row, col, 1, -1, player)) {
       setState(() {
         winner = player;
@@ -460,6 +372,7 @@ class _ConnectFourGameState extends State<ConnectFourGame> {
       return;
     }
 
+    // Check for draw
     bool isFull = true;
     for (var row in board) {
       if (row.contains('')) {
@@ -479,6 +392,7 @@ class _ConnectFourGameState extends State<ConnectFourGame> {
   bool _checkDirection(int row, int col, int dRow, int dCol, String player) {
     int count = 1;
 
+    // Check in positive direction
     int r = row + dRow;
     int c = col + dCol;
     while (r >= 0 && r < rows && c >= 0 && c < cols && board[r][c] == player) {
@@ -487,6 +401,7 @@ class _ConnectFourGameState extends State<ConnectFourGame> {
       c += dCol;
     }
 
+    // Check in negative direction
     r = row - dRow;
     c = col - dCol;
     while (r >= 0 && r < rows && c >= 0 && c < cols && board[r][c] == player) {
@@ -504,7 +419,6 @@ class _ConnectFourGameState extends State<ConnectFourGame> {
       isRedPlayer = true;
       winner = '';
       gameOver = false;
-      _botThinking = false;
     });
   }
 }

@@ -1,20 +1,32 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../models/patient_model.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'location_map_page.dart';
+import '../games/games_hub_page.dart';
 
-class PatientDetailScreen extends StatefulWidget {
-  final Patient patient;
+class PatientDetailPage extends StatefulWidget {
+  final String patientId;
+  final String patientName;
 
-  const PatientDetailScreen({Key? key, required this.patient}) : super(key: key);
+  const PatientDetailPage({
+    super.key,
+    required this.patientId,
+    required this.patientName,
+  });
 
   @override
-  State<PatientDetailScreen> createState() => _PatientDetailScreenState();
+  State<PatientDetailPage> createState() => _PatientDetailPageState();
 }
 
-class _PatientDetailScreenState extends State<PatientDetailScreen>
+class _PatientDetailPageState extends State<PatientDetailPage>
     with SingleTickerProviderStateMixin {
   late AnimationController _animationController;
-  int _selectedNavIndex = 2; // Middle button for add reminder
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  int _selectedNavIndex = 2;
+  Map<String, dynamic>? _patientData;
+  List<Map<String, dynamic>> _reminders = [];
+  bool _isLoading = true;
 
   @override
   void initState() {
@@ -23,6 +35,42 @@ class _PatientDetailScreenState extends State<PatientDetailScreen>
       vsync: this,
       duration: const Duration(milliseconds: 300),
     );
+    _loadPatientData();
+  }
+
+  Future<void> _loadPatientData() async {
+    try {
+      // Load patient data
+      final patientDoc = await _firestore
+          .collection('patients')
+          .doc(widget.patientId)
+          .get();
+
+      if (patientDoc.exists) {
+        setState(() {
+          _patientData = patientDoc.data();
+        });
+      }
+
+      // Load reminders for this patient
+      final remindersSnapshot = await _firestore
+          .collection('reminders')
+          .where('patientId', isEqualTo: widget.patientId)
+          .orderBy('time')
+          .get();
+
+      setState(() {
+        _reminders = remindersSnapshot.docs
+            .map((doc) => {'id': doc.id, ...doc.data()})
+            .toList();
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('Error loading patient data: $e');
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
 
   @override
@@ -40,7 +88,9 @@ class _PatientDetailScreenState extends State<PatientDetailScreen>
           children: [
             _buildHeader(),
             Expanded(
-              child: SingleChildScrollView(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : SingleChildScrollView(
                 padding: const EdgeInsets.all(20),
                 child: Column(
                   children: [
@@ -108,6 +158,16 @@ class _PatientDetailScreenState extends State<PatientDetailScreen>
   }
 
   Widget _buildPatientInfoCard() {
+    final location = _patientData?['address'] ?? 'No location set';
+    final todaysReminders = _reminders.where((reminder) {
+      final reminderDate = (reminder['time'] as Timestamp?)?.toDate();
+      final today = DateTime.now();
+      return reminderDate != null &&
+          reminderDate.year == today.year &&
+          reminderDate.month == today.month &&
+          reminderDate.day == today.day;
+    }).toList();
+
     return Container(
       decoration: BoxDecoration(
         color: const Color(0xFFE8C4C8),
@@ -122,14 +182,13 @@ class _PatientDetailScreenState extends State<PatientDetailScreen>
       ),
       child: Column(
         children: [
-          // Patient header
           Padding(
             padding: const EdgeInsets.all(20),
             child: Row(
               children: [
                 Expanded(
                   child: Text(
-                    widget.patient.name,
+                    widget.patientName,
                     style: const TextStyle(
                       fontSize: 28,
                       fontWeight: FontWeight.bold,
@@ -153,7 +212,6 @@ class _PatientDetailScreenState extends State<PatientDetailScreen>
               ],
             ),
           ),
-          // Patient details box
           Container(
             margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
             padding: const EdgeInsets.all(20),
@@ -169,7 +227,7 @@ class _PatientDetailScreenState extends State<PatientDetailScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Patient 1: ${widget.patient.name}',
+                  'Patient: ${widget.patientName}',
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -178,7 +236,7 @@ class _PatientDetailScreenState extends State<PatientDetailScreen>
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Current location: ${widget.patient.location}',
+                  'Current location: $location',
                   style: const TextStyle(
                     fontSize: 14,
                     color: Color(0xFF5A4046),
@@ -194,7 +252,7 @@ class _PatientDetailScreenState extends State<PatientDetailScreen>
                   ),
                 ),
                 const SizedBox(height: 12),
-                if (widget.patient.reminders.isEmpty)
+                if (todaysReminders.isEmpty)
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 8),
                     child: Text(
@@ -207,28 +265,33 @@ class _PatientDetailScreenState extends State<PatientDetailScreen>
                     ),
                   )
                 else
-                  ...widget.patient.reminders.map((reminder) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('• ', style: TextStyle(fontSize: 16)),
-                        Expanded(
-                          child: Text(
-                            reminder,
-                            style: const TextStyle(
-                              fontSize: 14,
-                              color: Color(0xFF3D2C31),
+                  ...todaysReminders.map((reminder) {
+                    final time = (reminder['time'] as Timestamp?)?.toDate();
+                    final timeStr = time != null
+                        ? DateFormat('h:mm a').format(time)
+                        : '';
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('• ', style: TextStyle(fontSize: 16)),
+                          Expanded(
+                            child: Text(
+                              '${reminder['title']} ${timeStr.isNotEmpty ? 'at $timeStr' : ''}',
+                              style: const TextStyle(
+                                fontSize: 14,
+                                color: Color(0xFF3D2C31),
+                              ),
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                  )),
+                        ],
+                      ),
+                    );
+                  }),
               ],
             ),
           ),
-          // Add Reminder button
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
             child: SizedBox(
@@ -264,37 +327,39 @@ class _PatientDetailScreenState extends State<PatientDetailScreen>
       children: [
         Expanded(
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _buildActionCard(
                 icon: Icons.calendar_month,
                 label: 'Calendar',
-                onTap: () {
-                  // Navigate to calendar
-                  _showComingSoon('Calendar');
-                },
+                onTap: () => _showComingSoon('Calendar'),
               ),
               const SizedBox(height: 16),
               _buildActionCard(
                 icon: Icons.extension,
                 label: 'Activities',
-                onTap: () {
-                  // Navigate to activities/games
-                  _showComingSoon('Activities & Games');
-                },
+                onTap: () => _showComingSoon('Activities & Games'),
               ),
             ],
           ),
         ),
         const SizedBox(width: 16),
         Expanded(
-          child: _buildActionCard(
+          child:               _buildActionCard(
             icon: Icons.location_on,
             label: 'Location',
             height: 280,
             isLarge: true,
             onTap: () {
-              // Navigate to location
-              _showComingSoon('Location Tracking');
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => LocationMapPage(
+                    patientId: widget.patientId,
+                    patientName: widget.patientName,
+                  ),
+                ),
+              );
             },
           ),
         ),
@@ -330,7 +395,6 @@ class _PatientDetailScreenState extends State<PatientDetailScreen>
           child: isLarge
               ? Stack(
             children: [
-              // Map placeholder
               Container(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(20),
@@ -344,7 +408,6 @@ class _PatientDetailScreenState extends State<PatientDetailScreen>
                   ),
                 ),
               ),
-              // Label overlay
               Positioned(
                 bottom: 12,
                 left: 12,
@@ -439,7 +502,6 @@ class _PatientDetailScreenState extends State<PatientDetailScreen>
         setState(() {
           _selectedNavIndex = index;
         });
-        // Handle navigation based on index
         _handleNavigation(index);
       },
       icon: Icon(
@@ -486,13 +548,28 @@ class _PatientDetailScreenState extends State<PatientDetailScreen>
         _showComingSoon('Calendar');
         break;
       case 1:
-        _showComingSoon('Location');
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => LocationMapPage(
+              patientId: widget.patientId,
+              patientName: widget.patientName,
+            ),
+          ),
+        );
         break;
       case 3:
-        _showComingSoon('Activities');
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => GamesHubPage(
+              playerName: widget.patientName,
+              isCaretaker: true,
+            ),
+          ),
+        );
         break;
       case 4:
-      // Profile or back to patient list
         Navigator.pop(context);
         break;
     }
@@ -504,20 +581,9 @@ class _PatientDetailScreenState extends State<PatientDetailScreen>
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => ReminderPopup(
-        onSave: (reminder) {
-          setState(() {
-            widget.patient.reminders.add(reminder.title);
-          });
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('Reminder added successfully!'),
-              backgroundColor: const Color(0xFF8FA9C9),
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-          );
+        patientId: widget.patientId,
+        onSave: () {
+          _loadPatientData(); // Reload reminders
         },
       ),
     );
@@ -539,26 +605,105 @@ class _PatientDetailScreenState extends State<PatientDetailScreen>
 
 // Reminder Popup Widget
 class ReminderPopup extends StatefulWidget {
-  final Function(ReminderData) onSave;
+  final String patientId;
+  final VoidCallback onSave;
 
-  const ReminderPopup({Key? key, required this.onSave}) : super(key: key);
+  const ReminderPopup({
+    super.key,
+    required this.patientId,
+    required this.onSave,
+  });
 
   @override
   State<ReminderPopup> createState() => _ReminderPopupState();
 }
 
 class _ReminderPopupState extends State<ReminderPopup> {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
   String _selectedType = 'Event';
+  DateTime? _selectedDate;
   TimeOfDay? _selectedTime;
   String _selectedRepeat = 'Once';
+  bool _isSaving = false;
 
   @override
   void dispose() {
     _titleController.dispose();
     _descriptionController.dispose();
     super.dispose();
+  }
+
+  Future<void> _saveReminder() async {
+    if (_titleController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Please enter a title'),
+          backgroundColor: Colors.red.shade400,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isSaving = true);
+
+    try {
+      // Create reminder time from selected date and time
+      final now = DateTime.now();
+      final date = _selectedDate ?? now;
+      DateTime reminderTime = DateTime(
+        date.year,
+        date.month,
+        date.day,
+        _selectedTime?.hour ?? now.hour,
+        _selectedTime?.minute ?? now.minute,
+      );
+
+      await _firestore.collection('reminders').add({
+        'patientId': widget.patientId,
+        'title': _titleController.text,
+        'description': _descriptionController.text,
+        'type': _selectedType.toLowerCase(),
+        'time': Timestamp.fromDate(reminderTime),
+        'repeating': _selectedRepeat.toLowerCase(),
+        'completed': false,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      widget.onSave();
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Reminder added successfully!'),
+            backgroundColor: const Color(0xFF8FA9C9),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error saving reminder: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to save reminder: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
   }
 
   @override
@@ -571,7 +716,6 @@ class _ReminderPopupState extends State<ReminderPopup> {
       ),
       child: Column(
         children: [
-          // Handle bar
           Container(
             margin: const EdgeInsets.symmetric(vertical: 12),
             width: 40,
@@ -581,7 +725,6 @@ class _ReminderPopupState extends State<ReminderPopup> {
               borderRadius: BorderRadius.circular(2),
             ),
           ),
-          // Title
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 24, vertical: 8),
             child: Text(
@@ -593,7 +736,6 @@ class _ReminderPopupState extends State<ReminderPopup> {
               ),
             ),
           ),
-          // Form content
           Expanded(
             child: Container(
               margin: const EdgeInsets.all(20),
@@ -620,6 +762,8 @@ class _ReminderPopupState extends State<ReminderPopup> {
                     ),
                     const SizedBox(height: 16),
                     _buildTypeSelector(),
+                    const SizedBox(height: 16),
+                    _buildDateSelector(),
                     const SizedBox(height: 16),
                     _buildTimeSelector(),
                     const SizedBox(height: 16),
@@ -682,20 +826,11 @@ class _ReminderPopupState extends State<ReminderPopup> {
   }
 
   Widget _buildTypeSelector() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Row(
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: _buildTypeButton('Event'),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _buildTypeButton('Task'),
-            ),
-          ],
-        ),
+        Expanded(child: _buildTypeButton('Event')),
+        const SizedBox(width: 12),
+        Expanded(child: _buildTypeButton('Task')),
       ],
     );
   }
@@ -714,11 +849,7 @@ class _ReminderPopupState extends State<ReminderPopup> {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: () {
-            setState(() {
-              _selectedType = type;
-            });
-          },
+          onTap: () => setState(() => _selectedType = type),
           borderRadius: BorderRadius.circular(12),
           child: Center(
             child: Text(
@@ -735,12 +866,74 @@ class _ReminderPopupState extends State<ReminderPopup> {
     );
   }
 
+  Widget _buildDateSelector() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Date:',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF3D2C31),
+          ),
+        ),
+        const SizedBox(height: 8),
+        InkWell(
+          onTap: () async {
+            final date = await showDatePicker(
+              context: context,
+              initialDate: _selectedDate ?? DateTime.now(),
+              firstDate: DateTime.now(),
+              lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
+              builder: (context, child) {
+                return Theme(
+                  data: Theme.of(context).copyWith(
+                    colorScheme: const ColorScheme.light(
+                      primary: Color(0xFF8FA9C9),
+                    ),
+                  ),
+                  child: child!,
+                );
+              },
+            );
+            if (date != null) {
+              setState(() => _selectedDate = date);
+            }
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFE8C4C8),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.calendar_today, color: Color(0xFF3D2C31)),
+                const SizedBox(width: 12),
+                Text(
+                  _selectedDate != null
+                      ? '${_selectedDate!.month}/${_selectedDate!.day}/${_selectedDate!.year}'
+                      : 'Select date',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    color: Color(0xFF3D2C31),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildTimeSelector() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          'Times:',
+          'Time:',
           style: TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.bold,
@@ -765,9 +958,7 @@ class _ReminderPopupState extends State<ReminderPopup> {
               },
             );
             if (time != null) {
-              setState(() {
-                _selectedTime = time;
-              });
+              setState(() => _selectedTime = time);
             }
           },
           child: Container(
@@ -821,22 +1012,17 @@ class _ReminderPopupState extends State<ReminderPopup> {
               value: _selectedRepeat,
               isExpanded: true,
               icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF3D2C31)),
-              style: const TextStyle(
-                fontSize: 16,
-                color: Color(0xFF3D2C31),
-              ),
+              style: const TextStyle(fontSize: 16, color: Color(0xFF3D2C31)),
               dropdownColor: const Color(0xFFE8C4C8),
-              items: ['Once', 'Daily', 'Weekly', 'Monthly'].map((String value) {
-                return DropdownMenuItem<String>(
-                  value: value,
-                  child: Text(value),
-                );
-              }).toList(),
-              onChanged: (String? newValue) {
-                if (newValue != null) {
-                  setState(() {
-                    _selectedRepeat = newValue;
-                  });
+              items: ['Once', 'Daily', 'Weekly', 'Monthly']
+                  .map((value) => DropdownMenuItem(
+                value: value,
+                child: Text(value),
+              ))
+                  .toList(),
+              onChanged: (value) {
+                if (value != null) {
+                  setState(() => _selectedRepeat = value);
                 }
               },
             ),
@@ -850,32 +1036,7 @@ class _ReminderPopupState extends State<ReminderPopup> {
     return SizedBox(
       width: double.infinity,
       child: ElevatedButton(
-        onPressed: () {
-          if (_titleController.text.isEmpty) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: const Text('Please enter a title'),
-                backgroundColor: Colors.red.shade400,
-                behavior: SnackBarBehavior.floating,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            );
-            return;
-          }
-
-          final reminder = ReminderData(
-            title: _titleController.text,
-            description: _descriptionController.text,
-            type: _selectedType,
-            time: _selectedTime,
-            repeat: _selectedRepeat,
-          );
-
-          widget.onSave(reminder);
-          Navigator.pop(context);
-        },
+        onPressed: _isSaving ? null : _saveReminder,
         style: ElevatedButton.styleFrom(
           backgroundColor: const Color(0xFF8FA9C9),
           foregroundColor: Colors.white,
@@ -885,7 +1046,16 @@ class _ReminderPopupState extends State<ReminderPopup> {
           ),
           elevation: 4,
         ),
-        child: const Text(
+        child: _isSaving
+            ? const SizedBox(
+          height: 20,
+          width: 20,
+          child: CircularProgressIndicator(
+            color: Colors.white,
+            strokeWidth: 2,
+          ),
+        )
+            : const Text(
           'Save Reminder',
           style: TextStyle(
             fontSize: 18,
@@ -895,21 +1065,4 @@ class _ReminderPopupState extends State<ReminderPopup> {
       ),
     );
   }
-}
-
-// Reminder Data Model
-class ReminderData {
-  final String title;
-  final String description;
-  final String type;
-  final TimeOfDay? time;
-  final String repeat;
-
-  ReminderData({
-    required this.title,
-    required this.description,
-    required this.type,
-    this.time,
-    required this.repeat,
-  });
 }
