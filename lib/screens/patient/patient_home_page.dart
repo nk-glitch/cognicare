@@ -268,6 +268,61 @@ class _PatientHomePageState extends State<PatientHomePage>
     }
   }
 
+  /// Handle pull-to-refresh
+  Future<void> _handleRefresh() async {
+    try {
+      final user = _authService.currentUser;
+      if (user == null) return;
+
+      // Reload user and patient data
+      final userData = await _authService.getUserData(user.uid);
+      if (userData != null && mounted) {
+        setState(() {
+          patientName = '${userData['firstName']} ${userData['lastName']}';
+        });
+      }
+
+      final patientData = await _authService.getPatientData(user.uid);
+      if (patientData != null && mounted) {
+        setState(() {
+          emergencyContactName = patientData['emergencyContact'] ?? 'Not set';
+          emergencyContactPhone = patientData['emergencyContactNumber'] ?? '';
+          currentLocation = patientData['address'] ?? 'Home';
+        });
+      }
+
+      // Reload reminders and check for pending ones
+      await Future.wait([
+        _loadTodaysReminders(user.uid),
+        _checkForPendingReminders(),
+      ]);
+
+      // Re-share location in background (don't await)
+      _shareLocationInBackground();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Page refreshed'),
+            backgroundColor: Color(0xFF8FA9C9),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error refreshing: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error refreshing: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -288,52 +343,58 @@ class _PatientHomePageState extends State<PatientHomePage>
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
       body: SafeArea(
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Landing Page (Patient)',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Color(0xFF666666),
-                        fontWeight: FontWeight.w500,
+        child: RefreshIndicator(
+          onRefresh: _handleRefresh,
+          color: const Color(0xFF8FA9C9),
+          backgroundColor: Colors.white,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Landing Page (Patient)',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Color(0xFF666666),
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
-                    ),
-                    IconButton(
-                      onPressed: () async {
-                        await _authService.signOut();
-                        if (mounted) {
-                          Navigator.pushReplacement(
-                            context,
-                            MaterialPageRoute(builder: (_) => const LoginPage()),
-                          );
-                        }
-                      },
-                      icon: const Icon(Icons.logout),
-                      tooltip: 'Logout',
-                      color: const Color(0xFF666666),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                _buildEmergencyButton(),
-                const SizedBox(height: 20),
-                _buildWelcomeCard(),
-                const SizedBox(height: 20),
-                _buildLocationShareCard(),
-                const SizedBox(height: 20),
-                _buildActivityCard(),
-                const SizedBox(height: 20),
-                _buildGamesCard(),
-                const SizedBox(height: 20),
-                _buildRemindersCard(),
-              ],
+                      IconButton(
+                        onPressed: () async {
+                          await _authService.signOut();
+                          if (mounted) {
+                            Navigator.pushReplacement(
+                              context,
+                              MaterialPageRoute(builder: (_) => const LoginPage()),
+                            );
+                          }
+                        },
+                        icon: const Icon(Icons.logout),
+                        tooltip: 'Logout',
+                        color: const Color(0xFF666666),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  _buildEmergencyButton(),
+                  const SizedBox(height: 20),
+                  _buildWelcomeCard(),
+                  const SizedBox(height: 20),
+                  _buildLocationShareCard(),
+                  const SizedBox(height: 20),
+                  _buildActivityCard(),
+                  const SizedBox(height: 20),
+                  _buildGamesCard(),
+                  const SizedBox(height: 20),
+                  _buildRemindersCard(),
+                ],
+              ),
             ),
           ),
         ),

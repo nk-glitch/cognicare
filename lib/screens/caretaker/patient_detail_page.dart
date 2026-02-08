@@ -346,22 +346,22 @@ class _PatientDetailPageState extends State<PatientDetailPage>
         const SizedBox(width: 16),
         Expanded(
           child:               _buildActionCard(
-                icon: Icons.location_on,
-                label: 'Location',
-                height: 280,
-                isLarge: true,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => LocationMapPage(
-                        patientId: widget.patientId,
-                        patientName: widget.patientName,
-                      ),
-                    ),
-                  );
-                },
-              ),
+            icon: Icons.location_on,
+            label: 'Location',
+            height: 280,
+            isLarge: true,
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => LocationMapPage(
+                    patientId: widget.patientId,
+                    patientName: widget.patientName,
+                  ),
+                ),
+              );
+            },
+          ),
         ),
       ],
     );
@@ -622,7 +622,6 @@ class _ReminderPopupState extends State<ReminderPopup> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
-  String _selectedType = 'Event';
   DateTime? _selectedDate;
   TimeOfDay? _selectedTime;
   String _selectedRepeat = 'Once';
@@ -668,7 +667,7 @@ class _ReminderPopupState extends State<ReminderPopup> {
         'patientId': widget.patientId,
         'title': _titleController.text,
         'description': _descriptionController.text,
-        'type': _selectedType.toLowerCase(),
+        'type': 'reminder',
         'time': Timestamp.fromDate(reminderTime),
         'repeating': _selectedRepeat.toLowerCase(),
         'completed': false,
@@ -761,8 +760,6 @@ class _ReminderPopupState extends State<ReminderPopup> {
                       maxLines: 3,
                     ),
                     const SizedBox(height: 16),
-                    _buildTypeSelector(),
-                    const SizedBox(height: 16),
                     _buildDateSelector(),
                     const SizedBox(height: 16),
                     _buildTimeSelector(),
@@ -822,47 +819,6 @@ class _ReminderPopupState extends State<ReminderPopup> {
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildTypeSelector() {
-    return Row(
-      children: [
-        Expanded(child: _buildTypeButton('Event')),
-        const SizedBox(width: 12),
-        Expanded(child: _buildTypeButton('Task')),
-      ],
-    );
-  }
-
-  Widget _buildTypeButton(String type) {
-    final isSelected = _selectedType == type;
-    return Container(
-      height: 50,
-      decoration: BoxDecoration(
-        color: isSelected ? const Color(0xFFE8C4C8) : const Color(0xFFD4ADB1),
-        borderRadius: BorderRadius.circular(12),
-        border: isSelected
-            ? Border.all(color: const Color(0xFF8FA9C9), width: 2)
-            : null,
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () => setState(() => _selectedType = type),
-          borderRadius: BorderRadius.circular(12),
-          child: Center(
-            child: Text(
-              type,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
-                color: const Color(0xFF3D2C31),
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 
