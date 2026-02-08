@@ -7,17 +7,8 @@ plugins {
 
 android {
     namespace = "com.example.cognicare"
-    compileSdk = 36
+    compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
-
-    defaultConfig {
-        applicationId = "com.example.cognicare"
-        minSdk = flutter.minSdkVersion
-        targetSdk = 34
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
-        multiDexEnabled = true
-    }
 
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
@@ -27,6 +18,15 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+    }
+
+    defaultConfig {
+        applicationId = "com.example.cognicare"
+        minSdk = flutter.minSdkVersion
+        targetSdk = flutter.targetSdkVersion
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+        multiDexEnabled = true  // ← ADD THIS LINE
     }
 
     buildTypes {
@@ -42,4 +42,5 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    implementation("com.google.firebase:firebase-messaging:23.4.0")
 }

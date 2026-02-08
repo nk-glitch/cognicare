@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:async';
 import '../../services/auth_service.dart';
 import '../../services/location_service.dart';
+import '../../services/notification_service.dart';
 import '../profile_page.dart';
 import '../auth/login_page.dart';
 import '../games/games_hub_page.dart';
@@ -16,13 +19,14 @@ class PatientHomePage extends StatefulWidget {
 }
 
 class _PatientHomePageState extends State<PatientHomePage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   final AuthService _authService = AuthService();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final LocationService _locationService = LocationService();
 
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
+  Timer? _reminderCheckTimer;
 
   String patientName = "Loading...";
   String emergencyContactName = "Not set";
@@ -37,6 +41,8 @@ class _PatientHomePageState extends State<PatientHomePage>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1500),
@@ -49,14 +55,103 @@ class _PatientHomePageState extends State<PatientHomePage>
       ),
     );
 
+    // Set up notification tap handler
+    NotificationService.onNotificationTap = (data) {
+      _showReminderDialog(data);
+    };
+
+    // Start periodic reminder check timer (every 30 seconds)
+    _startReminderCheckTimer();
+
     _loadPatientData();
-    // Run location share after UI is ready so it doesn't block or freeze the app
+
+    // Check for pending reminders after data loads
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (!mounted) return;
+        _checkForPendingReminders();
+      });
+
       Future.delayed(const Duration(milliseconds: 1500), () {
         if (!mounted) return;
         _shareLocationInBackground();
       });
     });
+  }
+
+  void _startReminderCheckTimer() {
+    _reminderCheckTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      if (mounted) {
+        _checkForPendingReminders();
+      }
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // When app comes to foreground, check for pending reminders
+    if (state == AppLifecycleState.resumed) {
+      _checkForPendingReminders();
+      // Restart timer if it was cancelled
+      if (_reminderCheckTimer == null || !_reminderCheckTimer!.isActive) {
+        _startReminderCheckTimer();
+      }
+    } else if (state == AppLifecycleState.paused) {
+      // Cancel timer when app goes to background to save resources
+      _reminderCheckTimer?.cancel();
+    }
+  }
+
+  Future<void> _checkForPendingReminders() async {
+    try {
+      final user = _authService.currentUser;
+      if (user == null) return;
+
+      final now = Timestamp.now();
+
+      // Get all reminders that are due but not completed
+      final snapshot = await _firestore
+          .collection('reminders')
+          .where('patientId', isEqualTo: user.uid)
+          .where('completed', isEqualTo: false)
+          .where('time', isLessThanOrEqualTo: now)
+          .orderBy('time')
+          .limit(1)
+          .get();
+
+      if (snapshot.docs.isNotEmpty) {
+        final doc = snapshot.docs.first;
+        final reminder = doc.data();
+
+        // Format time
+        final time = (reminder['time'] as Timestamp).toDate();
+        final timeStr = DateFormat('h:mm a').format(time);
+
+        // Show dialog
+        _showReminderDialog({
+          'reminderId': doc.id,
+          'title': reminder['title'] ?? 'Reminder',
+          'description': reminder['description'] ?? '',
+          'time': timeStr,
+        });
+      }
+    } catch (e) {
+      print('Error checking pending reminders: $e');
+    }
+  }
+
+  void _showReminderDialog(Map<String, dynamic> reminderData) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => ReminderDialog(
+        title: reminderData['title'] ?? 'Reminder',
+        description: reminderData['description'] ?? '',
+        time: reminderData['time'] ?? '',
+        reminderId: reminderData['reminderId'] ?? '',
+      ),
+    );
   }
 
   /// Share location in background; never blocks UI or crashes the app.
@@ -175,7 +270,9 @@ class _PatientHomePageState extends State<PatientHomePage>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _pulseController.dispose();
+    _reminderCheckTimer?.cancel();
     super.dispose();
   }
 
@@ -477,21 +574,21 @@ class _PatientHomePageState extends State<PatientHomePage>
               onPressed: _isSharingLocation ? null : _onShareLocationTap,
               icon: _isSharingLocation
                   ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                    )
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+              )
                   : Icon(
-                      _locationShared ? Icons.check_circle : Icons.my_location,
-                      color: Colors.white,
-                      size: 22,
-                    ),
+                _locationShared ? Icons.check_circle : Icons.my_location,
+                color: Colors.white,
+                size: 22,
+              ),
               label: Text(
                 _isSharingLocation
                     ? 'Getting location...'
                     : _locationShared
-                        ? 'Location shared'
-                        : 'Allow location',
+                    ? 'Location shared'
+                    : 'Allow location',
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
@@ -755,6 +852,185 @@ class _PatientHomePageState extends State<PatientHomePage>
             child: const Text('OK'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// Reminder Dialog Widget
+class ReminderDialog extends StatelessWidget {
+  final String title;
+  final String description;
+  final String time;
+  final String reminderId;
+
+  const ReminderDialog({
+    super.key,
+    required this.title,
+    required this.description,
+    required this.time,
+    required this.reminderId,
+  });
+
+  Future<void> _markAsComplete(BuildContext context) async {
+    try {
+      if (reminderId.isNotEmpty) {
+        await FirebaseFirestore.instance
+            .collection('reminders')
+            .doc(reminderId)
+            .update({'completed': true});
+      }
+    } catch (e) {
+      print('Error marking reminder as complete: $e');
+    }
+  }
+
+  Future<void> _snoozeReminder(BuildContext context) async {
+    try {
+      // Get current user's UID
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      // Create a new reminder 5 minutes from now
+      final newTime = DateTime.now().add(const Duration(minutes: 5));
+
+      await FirebaseFirestore.instance.collection('reminders').add({
+        'title': title,
+        'description': description,
+        'time': Timestamp.fromDate(newTime),
+        'completed': false,
+        'patientId': user.uid,
+        'repeating': 'once',
+        'type': 'reminder',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      // Mark original reminder as completed
+      await _markAsComplete(context);
+    } catch (e) {
+      print('Error snoozing reminder: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF5E6E8),
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.notification_important,
+              size: 64,
+              color: Color(0xFF8FA9C9),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF3D2C31),
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Scheduled for: $time',
+              style: const TextStyle(
+                fontSize: 16,
+                color: Color(0xFF5A4046),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            if (description.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE8C4C8),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  description,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    color: Color(0xFF3D2C31),
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ],
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () async {
+                  await _markAsComplete(context);
+                  if (context.mounted) {
+                    Navigator.of(context).pop();
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF8FA9C9),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text(
+                  'Understood',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: () async {
+                  await _snoozeReminder(context);
+                  if (context.mounted) {
+                    Navigator.of(context).pop();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Reminder snoozed for 5 minutes'),
+                        backgroundColor: Color(0xFF8FA9C9),
+                      ),
+                    );
+                  }
+                },
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF8FA9C9),
+                  side: const BorderSide(color: Color(0xFF8FA9C9), width: 2),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text(
+                  'Remind me in 5 minutes',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
