@@ -327,6 +327,7 @@ class _PatientDetailPageState extends State<PatientDetailPage>
       children: [
         Expanded(
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _buildActionCard(
                 icon: Icons.calendar_month,
@@ -622,6 +623,7 @@ class _ReminderPopupState extends State<ReminderPopup> {
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
   String _selectedType = 'Event';
+  DateTime? _selectedDate;
   TimeOfDay? _selectedTime;
   String _selectedRepeat = 'Once';
   bool _isSaving = false;
@@ -651,12 +653,13 @@ class _ReminderPopupState extends State<ReminderPopup> {
     setState(() => _isSaving = true);
 
     try {
-      // Create reminder time
+      // Create reminder time from selected date and time
       final now = DateTime.now();
+      final date = _selectedDate ?? now;
       DateTime reminderTime = DateTime(
-        now.year,
-        now.month,
-        now.day,
+        date.year,
+        date.month,
+        date.day,
         _selectedTime?.hour ?? now.hour,
         _selectedTime?.minute ?? now.minute,
       );
@@ -760,6 +763,8 @@ class _ReminderPopupState extends State<ReminderPopup> {
                     const SizedBox(height: 16),
                     _buildTypeSelector(),
                     const SizedBox(height: 16),
+                    _buildDateSelector(),
+                    const SizedBox(height: 16),
                     _buildTimeSelector(),
                     const SizedBox(height: 16),
                     _buildRepeatSelector(),
@@ -861,12 +866,74 @@ class _ReminderPopupState extends State<ReminderPopup> {
     );
   }
 
+  Widget _buildDateSelector() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Date:',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF3D2C31),
+          ),
+        ),
+        const SizedBox(height: 8),
+        InkWell(
+          onTap: () async {
+            final date = await showDatePicker(
+              context: context,
+              initialDate: _selectedDate ?? DateTime.now(),
+              firstDate: DateTime.now(),
+              lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
+              builder: (context, child) {
+                return Theme(
+                  data: Theme.of(context).copyWith(
+                    colorScheme: const ColorScheme.light(
+                      primary: Color(0xFF8FA9C9),
+                    ),
+                  ),
+                  child: child!,
+                );
+              },
+            );
+            if (date != null) {
+              setState(() => _selectedDate = date);
+            }
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFE8C4C8),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.calendar_today, color: Color(0xFF3D2C31)),
+                const SizedBox(width: 12),
+                Text(
+                  _selectedDate != null
+                      ? '${_selectedDate!.month}/${_selectedDate!.day}/${_selectedDate!.year}'
+                      : 'Select date',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    color: Color(0xFF3D2C31),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildTimeSelector() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          'Times:',
+          'Time:',
           style: TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.bold,

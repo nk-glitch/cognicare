@@ -1,5 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:cognicare/screens/caretaker_home_screen.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
+import 'package:cognicare/services/auth_service.dart';
+import 'package:cognicare/screens/auth/login_page.dart';
+import 'package:cognicare/screens/auth/account_setup_page.dart';
+import 'package:cognicare/screens/patient/patient_home_page.dart';
+import 'package:cognicare/screens/caretaker/caretaker_home_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();

@@ -7,8 +7,17 @@ plugins {
 
 android {
     namespace = "com.example.cognicare"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
+
+    defaultConfig {
+        applicationId = "com.example.cognicare"
+        minSdk = flutter.minSdkVersion
+        targetSdk = 34
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+        multiDexEnabled = true
+    }
 
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
@@ -17,16 +26,7 @@ android {
     }
 
     kotlinOptions {
-        jvmTarget = "1.8"
-    }
-
-    defaultConfig {
-        applicationId = "com.example.cognicare"
-        minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
-        multiDexEnabled = true  // ← ADD THIS LINE
+        jvmTarget = "17"
     }
 
     buildTypes {

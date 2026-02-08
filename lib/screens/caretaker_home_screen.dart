@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'patient_detail_screen.dart';
 import '../models/patient_model.dart';
+import 'profile_page.dart';
 
 class CaretakerHomeScreen extends StatefulWidget {
   const CaretakerHomeScreen({Key? key}) : super(key: key);
@@ -95,14 +96,7 @@ class _CaretakerHomeScreenState extends State<CaretakerHomeScreen>
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [
-            Color(0xFFD7B3B7), // darker header start
-            Color(0xFFF4E4E1), // lighter top-right
-          ],
-          begin: Alignment.bottomLeft,
-          end: Alignment.topRight,
-        ),
+        color: const Color(0xFFE8C4C8),
         borderRadius: const BorderRadius.only(
           bottomLeft: Radius.circular(32),
           bottomRight: Radius.circular(32),
@@ -111,14 +105,12 @@ class _CaretakerHomeScreenState extends State<CaretakerHomeScreen>
           BoxShadow(
             color: Colors.black.withOpacity(0.1),
             blurRadius: 10,
-            offset: Offset(0, 5),
+            offset: const Offset(0, 5),
           ),
         ],
       ),
-
       child: Column(
         children: [
-          // Top row: date + logo
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -130,35 +122,21 @@ class _CaretakerHomeScreenState extends State<CaretakerHomeScreen>
                   fontWeight: FontWeight.w500,
                 ),
               ),
-              // Logo bubble (unchanged)
               Container(
-                width: 80,
-                height: 60,
+                padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF4E4E1),
+                  color: Colors.white.withOpacity(0.5),
                   borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 6,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
                 ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.asset(
-                    'assets/images/logo.png',
-                    fit: BoxFit.contain,
-                  ),
+                child: const Icon(
+                  Icons.favorite,
+                  color: Color(0xFFD47A8A),
+                  size: 24,
                 ),
               ),
             ],
           ),
-
           const SizedBox(height: 24),
-
-          // Welcome + caretaker info row
           Row(
             children: [
               Expanded(
@@ -185,33 +163,42 @@ class _CaretakerHomeScreenState extends State<CaretakerHomeScreen>
                   ],
                 ),
               ),
-              // Circular avatar
-              Container(
-                width: 70,
-                height: 70,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.15),
-                      blurRadius: 8,
-                      offset: const Offset(0, 3),
+              InkWell(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const ProfilePage(
+                        isCaretaker: true,
+                      ),
                     ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.person,
-                  size: 40,
-                  color: Color(0xFF8FA9C9),
+                  );
+                },
+                borderRadius: BorderRadius.circular(35),
+                child: Container(
+                  width: 70,
+                  height: 70,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.15),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.person,
+                    size: 40,
+                    color: Color(0xFF8FA9C9),
+                  ),
                 ),
               ),
             ],
           ),
-
           const SizedBox(height: 16),
-
-          // Patient count card
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             decoration: BoxDecoration(
@@ -242,7 +229,6 @@ class _CaretakerHomeScreenState extends State<CaretakerHomeScreen>
       ),
     );
   }
-
 
   Widget _buildPatientList() {
     return ListView.builder(
