@@ -153,6 +153,61 @@ class _PatientHomePageState extends State<PatientHomePage>
     );
   }
 
+  void _showSignOutConfirmation() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.logout, color: Color(0xFF8FA9C9)),
+            SizedBox(width: 12),
+            Text('Sign Out'),
+          ],
+        ),
+        content: const Text(
+          'Are you sure you want to sign out?',
+          style: TextStyle(fontSize: 16),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(
+                color: Color(0xFF666666),
+                fontSize: 16,
+              ),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context); // Close dialog first
+              await _authService.signOut();
+              if (mounted) {
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LoginPage()),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF8FA9C9),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text(
+              'Sign Out',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Share location in background; never blocks UI or crashes the app.
   Future<void> _shareLocationInBackground() async {
     try {
@@ -365,15 +420,7 @@ class _PatientHomePageState extends State<PatientHomePage>
                         ),
                       ),
                       IconButton(
-                        onPressed: () async {
-                          await _authService.signOut();
-                          if (mounted) {
-                            Navigator.pushReplacement(
-                              context,
-                              MaterialPageRoute(builder: (_) => const LoginPage()),
-                            );
-                          }
-                        },
+                        onPressed: _showSignOutConfirmation,
                         icon: const Icon(Icons.logout),
                         tooltip: 'Logout',
                         color: const Color(0xFF666666),
