@@ -28,9 +28,8 @@ class _PatientHomePageState extends State<PatientHomePage>
   Timer? _reminderCheckTimer;
 
   String patientName = "Loading...";
-  String emergencyContactName = "Not set";
-  String emergencyContactPhone = "";
-  String currentLocation = "Loading...";
+  String caretakerName = "Not connected";
+  String caretakerPhone = "";
   String currentActivity = "No activity scheduled";
   List<Map<String, dynamic>> reminders = [];
   bool _isLoading = true;
@@ -268,14 +267,8 @@ class _PatientHomePageState extends State<PatientHomePage>
           });
         }
 
-        final patientData = await _authService.getPatientData(user.uid);
-        if (patientData != null) {
-          setState(() {
-            emergencyContactName = patientData['emergencyContact'] ?? 'Not set';
-            emergencyContactPhone = patientData['emergencyContactNumber'] ?? '';
-            currentLocation = patientData['address'] ?? 'Home';
-          });
-        }
+        // Load connected caretaker information
+        await _loadCaretakerInfo(user.uid);
 
         // Load today's reminders
         await _loadTodaysReminders(user.uid);
@@ -286,6 +279,43 @@ class _PatientHomePageState extends State<PatientHomePage>
     } finally {
       setState(() {
         _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _loadCaretakerInfo(String patientId) async {
+    try {
+      // Find accepted relationship with a caretaker
+      final relationshipSnapshot = await _firestore
+          .collection('patient_caretaker_relationships')
+          .where('patientId', isEqualTo: patientId)
+          .where('status', isEqualTo: 'accepted')
+          .limit(1)
+          .get();
+
+      if (relationshipSnapshot.docs.isNotEmpty) {
+        final relationship = relationshipSnapshot.docs.first.data();
+        final caretakerId = relationship['caretakerId'];
+
+        // Get caretaker user data
+        final caretakerData = await _authService.getUserData(caretakerId);
+        if (caretakerData != null) {
+          setState(() {
+            caretakerName = '${caretakerData['firstName']} ${caretakerData['lastName']}';
+            caretakerPhone = caretakerData['phone'] ?? '';
+          });
+        }
+      } else {
+        setState(() {
+          caretakerName = 'Not connected';
+          caretakerPhone = '';
+        });
+      }
+    } catch (e) {
+      print('Error loading caretaker info: $e');
+      setState(() {
+        caretakerName = 'Not connected';
+        caretakerPhone = '';
       });
     }
   }
@@ -328,7 +358,7 @@ class _PatientHomePageState extends State<PatientHomePage>
       final user = _authService.currentUser;
       if (user == null) return;
 
-      // Reload user and patient data
+      // Reload user data
       final userData = await _authService.getUserData(user.uid);
       if (userData != null && mounted) {
         setState(() {
@@ -336,17 +366,9 @@ class _PatientHomePageState extends State<PatientHomePage>
         });
       }
 
-      final patientData = await _authService.getPatientData(user.uid);
-      if (patientData != null && mounted) {
-        setState(() {
-          emergencyContactName = patientData['emergencyContact'] ?? 'Not set';
-          emergencyContactPhone = patientData['emergencyContactNumber'] ?? '';
-          currentLocation = patientData['address'] ?? 'Home';
-        });
-      }
-
-      // Reload reminders and check for pending ones
+      // Reload caretaker info and reminders
       await Future.wait([
+        _loadCaretakerInfo(user.uid),
         _loadTodaysReminders(user.uid),
         _checkForPendingReminders(),
       ]);
@@ -546,36 +568,10 @@ class _PatientHomePageState extends State<PatientHomePage>
             ],
           ),
           const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: const Color(0xFFD4ADB1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.home,
-                  size: 22,
-                  color: Color(0xFF3D2C31),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  currentLocation.isEmpty ? 'You are Home' : currentLocation,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF3D2C31),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
           const Divider(color: Color(0xFFD4ADB1), thickness: 1.5),
           const SizedBox(height: 12),
           const Text(
-            'Emergency Contact',
+            'Your Caretaker',
             style: TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.bold,
@@ -584,14 +580,14 @@ class _PatientHomePageState extends State<PatientHomePage>
           ),
           const SizedBox(height: 8),
           Text(
-            emergencyContactName,
+            caretakerName,
             style: const TextStyle(
               fontSize: 16,
               color: Color(0xFF5A4046),
               fontWeight: FontWeight.w500,
             ),
           ),
-          if (emergencyContactPhone.isNotEmpty) ...[
+          if (caretakerPhone.isNotEmpty) ...[
             const SizedBox(height: 4),
             Row(
               children: [
@@ -602,7 +598,7 @@ class _PatientHomePageState extends State<PatientHomePage>
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  emergencyContactPhone,
+                  caretakerPhone,
                   style: const TextStyle(
                     fontSize: 16,
                     color: Color(0xFF5A4046),
@@ -610,6 +606,36 @@ class _PatientHomePageState extends State<PatientHomePage>
                   ),
                 ),
               ],
+            ),
+          ],
+          if (caretakerPhone.isEmpty && caretakerName == 'Not connected') ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFD4ADB1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.info_outline,
+                    size: 20,
+                    color: Color(0xFF5A4046),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Connect with a caretaker in your Profile',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Color(0xFF3D2C31),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ],
@@ -851,12 +877,12 @@ class _PatientHomePageState extends State<PatientHomePage>
   }
 
   void _handleEmergencyCall() async {
-    if (emergencyContactPhone.isEmpty) {
-      _showErrorDialog('No emergency contact number set');
+    if (caretakerPhone.isEmpty) {
+      _showErrorDialog('No caretaker connected. Please connect with a caretaker in your Profile to enable emergency calls.');
       return;
     }
 
-    final phoneNumber = emergencyContactPhone.replaceAll(RegExp(r'[^\d]'), '');
+    final phoneNumber = caretakerPhone.replaceAll(RegExp(r'[^\d]'), '');
     final uri = Uri(scheme: 'tel', path: phoneNumber);
 
     try {
