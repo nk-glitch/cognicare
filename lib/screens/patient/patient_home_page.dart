@@ -881,26 +881,18 @@ class ReminderDialog extends StatelessWidget {
 
   Future<void> _snoozeReminder(BuildContext context) async {
     try {
-      // Get current user's UID
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
+      if (reminderId.isEmpty) return;
 
-      // Create a new reminder 5 minutes from now
+      // Update the same reminder's time to 5 minutes from now
       final newTime = DateTime.now().add(const Duration(minutes: 5));
 
-      await FirebaseFirestore.instance.collection('reminders').add({
-        'title': title,
-        'description': description,
+      await FirebaseFirestore.instance
+          .collection('reminders')
+          .doc(reminderId)
+          .update({
         'time': Timestamp.fromDate(newTime),
         'completed': false,
-        'patientId': user.uid,
-        'repeating': 'once',
-        'type': 'reminder',
-        'createdAt': FieldValue.serverTimestamp(),
       });
-
-      // Mark original reminder as completed
-      await _markAsComplete(context);
     } catch (e) {
       print('Error snoozing reminder: $e');
     }

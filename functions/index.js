@@ -16,7 +16,7 @@ function formatTime(timestamp) {
     return `${hours}:${minutesStr} ${ampm}`;
 }
 
-// This function runs every minute to check for due reminders
+// This function runs every 1 minute to check for due reminders
 exports.sendScheduledReminders = onSchedule('every 1 minutes', async (event) => {
     const db = admin.firestore();
     const now = admin.firestore.Timestamp.now();
@@ -38,10 +38,10 @@ exports.sendScheduledReminders = onSchedule('every 1 minutes', async (event) => 
         remindersSnapshot.forEach(doc => {
             const reminder = doc.data();
 
-            // Format the notification title with time
+            // Format time and body
             const timeStr = formatTime(reminder.time);
-            const notificationTitle = `Reminder at ${timeStr}: ${reminder.title || 'Reminder'}`;
-            const notificationBody = reminder.description || '';
+            const description = reminder.description || '';
+            const formattedBody = `Scheduled for ${timeStr}:\n${description}`;
 
             // Get patient's FCM token and send notification
             const sendNotification = db.collection('users')
@@ -64,15 +64,15 @@ exports.sendScheduledReminders = onSchedule('every 1 minutes', async (event) => 
                     return admin.messaging().send({
                         token: token,
                         notification: {
-                            title: notificationTitle,
-                            body: notificationBody
+                            title: `Reminder: ${reminder.title || 'Task'}`,
+                            body: formattedBody
                         },
                         data: {
                             reminderId: doc.id,
                             title: reminder.title || '',
                             description: reminder.description || '',
-                            time: timeStr,
-                            timestamp: reminder.time.toMillis().toString()
+                            timestamp: reminder.time.toMillis().toString(),
+                            time: timeStr
                         },
                         android: {
                             priority: 'high',

@@ -72,6 +72,20 @@ class _PatientDetailPageState extends State<PatientDetailPage>
     }
   }
 
+  // Handle pull-to-refresh logic
+  Future<void> _handleRefresh() async {
+    await _loadPatientData();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Patient data refreshed'),
+          backgroundColor: Color(0xFF8FA9C9),
+          duration: Duration(seconds: 1),
+        ),
+      );
+    }
+  }
+
   @override
   void dispose() {
     _animationController.dispose();
@@ -89,14 +103,20 @@ class _PatientDetailPageState extends State<PatientDetailPage>
             Expanded(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator())
-                  : SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  children: [
-                    _buildPatientInfoCard(),
-                    const SizedBox(height: 20),
-                    _buildActionGrid(),
-                  ],
+                  : RefreshIndicator(
+                onRefresh: _handleRefresh,
+                color: const Color(0xFF8FA9C9),
+                backgroundColor: Colors.white,
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    children: [
+                      _buildPatientInfoCard(),
+                      const SizedBox(height: 20),
+                      _buildActionGrid(),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -521,7 +541,8 @@ class _PatientDetailPageState extends State<PatientDetailPage>
   }
 }
 
-// Reminder Popup Widget
+// --- POPUP WIDGETS START HERE ---
+
 class ReminderPopup extends StatefulWidget {
   final String patientId;
   final VoidCallback onSave;
@@ -570,7 +591,6 @@ class _ReminderPopupState extends State<ReminderPopup> {
     setState(() => _isSaving = true);
 
     try {
-      // Create reminder time from selected date and time
       final now = DateTime.now();
       final date = _selectedDate ?? now;
       DateTime reminderTime = DateTime(
@@ -645,7 +665,7 @@ class _ReminderPopupState extends State<ReminderPopup> {
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 24, vertical: 8),
             child: Text(
-              'Reminder Popup',
+              'Add New Reminder',
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
@@ -787,7 +807,7 @@ class _ReminderPopupState extends State<ReminderPopup> {
                 const SizedBox(width: 12),
                 Text(
                   _selectedDate != null
-                      ? '${_selectedDate!.month}/${_selectedDate!.day}/${_selectedDate!.year}'
+                      ? DateFormat('MM/dd/yyyy').format(_selectedDate!)
                       : 'Select date',
                   style: const TextStyle(
                     fontSize: 16,
