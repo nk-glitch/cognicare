@@ -181,10 +181,12 @@ class _PatientDetailPageState extends State<PatientDetailPage>
     final todaysReminders = _reminders.where((reminder) {
       final reminderDate = (reminder['time'] as Timestamp?)?.toDate();
       final today = DateTime.now();
+      final isSnoozed = reminder['isSnoozed'] == true;
       return reminderDate != null &&
           reminderDate.year == today.year &&
           reminderDate.month == today.month &&
-          reminderDate.day == today.day;
+          reminderDate.day == today.day &&
+          !isSnoozed; // Exclude snoozed reminders
     }).toList();
 
     return Container(
@@ -289,20 +291,43 @@ class _PatientDetailPageState extends State<PatientDetailPage>
                     final timeStr = time != null
                         ? DateFormat('h:mm a').format(time)
                         : '';
+                    final description = reminder['description'] as String? ?? '';
+
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 8),
-                      child: Row(
+                      child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('• ', style: TextStyle(fontSize: 16)),
-                          Expanded(
-                            child: Text(
-                              '${reminder['title']} ${timeStr.isNotEmpty ? 'at $timeStr' : ''}',
-                              style: const TextStyle(
-                                fontSize: 14,
-                                color: Color(0xFF3D2C31),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('• ', style: TextStyle(fontSize: 16)),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '${reminder['title']} ${timeStr.isNotEmpty ? 'at $timeStr' : ''}',
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        color: Color(0xFF3D2C31),
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    if (description.isNotEmpty) ...[
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        description,
+                                        style: const TextStyle(
+                                          fontSize: 13,
+                                          color: Color(0xFF5A4046),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
                               ),
-                            ),
+                            ],
                           ),
                         ],
                       ),
