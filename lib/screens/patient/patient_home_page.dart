@@ -9,6 +9,7 @@ import '../../services/location_service.dart';
 import '../../services/notification_service.dart';
 import '../profile_page.dart';
 import '../auth/login_page.dart';
+import '../caretaker/calendar_page.dart';
 
 class PatientHomePage extends StatefulWidget {
   const PatientHomePage({super.key});
@@ -30,9 +31,6 @@ class _PatientHomePageState extends State<PatientHomePage>
   StreamSubscription<QuerySnapshot>? _snoozedReminderSubscription;
 
   String patientName = "Loading...";
-  String emergencyContactName = "Not set";
-  String emergencyContactPhone = "";
-  String currentLocation = "Loading...";
   String currentActivity = "No activity scheduled";
   List<Map<String, dynamic>> reminders = [];
   bool _isLoading = true;
@@ -66,7 +64,6 @@ class _PatientHomePageState extends State<PatientHomePage>
 
     // Set up real-time listener for reminders
     _setupReminderListener();
-    // Note: Snoozed reminders are now created as regular reminders with isSnoozed flag
 
     // Start periodic reminder check timer (every 60 seconds)
     _startReminderCheckTimer();
@@ -133,67 +130,6 @@ class _PatientHomePageState extends State<PatientHomePage>
             'time': timeStr,
             'timestamp': time.millisecondsSinceEpoch,
           });
-
-          // Only show one at a time
-          break;
-        }
-      }
-    });
-  }
-
-  void _setupSnoozedReminderListener() {
-    final user = _authService.currentUser;
-    if (user == null) return;
-
-    // Listen to snoozed reminders
-    _snoozedReminderSubscription = _firestore
-        .collection('snoozed_reminders')
-        .where('patientId', isEqualTo: user.uid)
-        .where('completed', isEqualTo: false)
-        .snapshots()
-        .listen((snapshot) {
-      if (!mounted) return;
-
-      final now = DateTime.now();
-
-      for (var doc in snapshot.docs) {
-        final reminder = doc.data();
-
-        // Safely get time with null check
-        final timeValue = reminder['time'];
-        if (timeValue == null) {
-          print('Snoozed reminder ${doc.id} has null time, skipping');
-          continue;
-        }
-
-        final time = (timeValue as Timestamp).toDate();
-
-        // Check if snoozed reminder is due (within 1 minute of snooze time)
-        final difference = now.difference(time);
-        if (difference.inSeconds >= 0 && difference.inSeconds < 60) {
-          // Use ORIGINAL time for display with null safety
-          String originalTimeStr;
-          final originalTimeValue = reminder['originalTime'];
-          if (originalTimeValue != null && originalTimeValue is Timestamp) {
-            final originalTime = originalTimeValue.toDate();
-            originalTimeStr = DateFormat('h:mm a').format(originalTime);
-          } else {
-            // Fallback to snoozed time if originalTime is null
-            originalTimeStr = DateFormat('h:mm a').format(time);
-          }
-
-          // Show dialog with ORIGINAL reminder ID
-          _showReminderDialog({
-            'reminderId': reminder['originalReminderId'] ?? doc.id,
-            'title': reminder['title'] ?? 'Reminder',
-            'description': reminder['description'] ?? '',
-            'time': originalTimeStr, // Show original scheduled time
-            'timestamp': time.millisecondsSinceEpoch,
-            'isSnooze': true,
-          });
-
-          // Delete the snoozed reminder after showing
-          _firestore.collection('snoozed_reminders').doc(doc.id).delete();
 
           // Only show one at a time
           break;
@@ -409,15 +345,6 @@ class _PatientHomePageState extends State<PatientHomePage>
           });
         }
 
-        final patientData = await _authService.getPatientData(user.uid);
-        if (patientData != null && mounted) {
-          setState(() {
-            emergencyContactName = patientData['emergencyContact'] ?? 'Not set';
-            emergencyContactPhone = patientData['emergencyContactNumber'] ?? '';
-            currentLocation = patientData['address'] ?? 'Home';
-          });
-        }
-
         // Load today's reminders
         await _loadTodaysReminders(user.uid);
       }
@@ -473,20 +400,11 @@ class _PatientHomePageState extends State<PatientHomePage>
       final user = _authService.currentUser;
       if (user == null) return;
 
-      // Reload user and patient data
+      // Reload user data
       final userData = await _authService.getUserData(user.uid);
       if (userData != null && mounted) {
         setState(() {
           patientName = '${userData['firstName']} ${userData['lastName']}';
-        });
-      }
-
-      final patientData = await _authService.getPatientData(user.uid);
-      if (patientData != null && mounted) {
-        setState(() {
-          emergencyContactName = patientData['emergencyContact'] ?? 'Not set';
-          emergencyContactPhone = patientData['emergencyContactNumber'] ?? '';
-          currentLocation = patientData['address'] ?? 'Home';
         });
       }
 
@@ -582,6 +500,8 @@ class _PatientHomePageState extends State<PatientHomePage>
                   const SizedBox(height: 20),
                   _buildLocationShareCard(),
                   const SizedBox(height: 20),
+                  _buildCalendarButton(),
+                  const SizedBox(height: 20),
                   _buildActivityCard(),
                   const SizedBox(height: 20),
                   _buildRemindersCard(),
@@ -651,115 +571,43 @@ class _PatientHomePageState extends State<PatientHomePage>
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Row(
-            children: [
-              InkWell(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const ProfilePage(isCaretaker: false),
-                    ),
-                  );
-                },
-                borderRadius: BorderRadius.circular(25),
-                child: Container(
-                  width: 50,
-                  height: 50,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.7),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.person,
-                    size: 28,
-                    color: Color(0xFF8FA9C9),
-                  ),
+          InkWell(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const ProfilePage(isCaretaker: false),
                 ),
+              );
+            },
+            borderRadius: BorderRadius.circular(25),
+            child: Container(
+              width: 50,
+              height: 50,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.7),
+                shape: BoxShape.circle,
               ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Text(
-                  'Welcome $patientName',
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF3D2C31),
-                  ),
-                ),
+              child: const Icon(
+                Icons.person,
+                size: 28,
+                color: Color(0xFF8FA9C9),
               ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: const Color(0xFFD4ADB1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.home,
-                  size: 22,
-                  color: Color(0xFF3D2C31),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  currentLocation.isEmpty ? 'You are Home' : currentLocation,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF3D2C31),
-                  ),
-                ),
-              ],
             ),
           ),
-          const SizedBox(height: 16),
-          const Divider(color: Color(0xFFD4ADB1), thickness: 1.5),
-          const SizedBox(height: 12),
-          const Text(
-            'Emergency Contact',
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF3D2C31),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Text(
+              'Welcome $patientName',
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF3D2C31),
+              ),
             ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            emergencyContactName,
-            style: const TextStyle(
-              fontSize: 16,
-              color: Color(0xFF5A4046),
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          if (emergencyContactPhone.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                const Icon(
-                  Icons.phone,
-                  size: 18,
-                  color: Color(0xFF5A4046),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  emergencyContactPhone,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    color: Color(0xFF5A4046),
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          ],
         ],
       ),
     );
@@ -858,6 +706,84 @@ class _PatientHomePageState extends State<PatientHomePage>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildCalendarButton() {
+    final user = _authService.currentUser;
+    if (user == null) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      height: 80,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF8FA9C9), Color(0xFFA5BDD4)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF8FA9C9).withOpacity(0.3),
+            blurRadius: 15,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => CalendarPage(
+                  patientId: user.uid,
+                  isCaretaker: false,
+                ),
+              ),
+            );
+          },
+          borderRadius: BorderRadius.circular(20),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Icon(
+                    Icons.calendar_month,
+                    size: 32,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                const Expanded(
+                  child: Text(
+                    'View Calendar',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+                const Icon(
+                  Icons.chevron_right,
+                  color: Colors.white,
+                  size: 28,
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -1012,27 +938,7 @@ class _PatientHomePageState extends State<PatientHomePage>
   }
 
   void _handleEmergencyCall() async {
-    if (emergencyContactPhone.isEmpty) {
-      _showErrorDialog('No emergency contact number set');
-      return;
-    }
-
-    final phoneNumber = emergencyContactPhone.replaceAll(RegExp(r'[^\d]'), '');
-    final uri = Uri(scheme: 'tel', path: phoneNumber);
-
-    try {
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri);
-      } else {
-        if (mounted) {
-          _showErrorDialog('Unable to make phone call');
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        _showErrorDialog('Error: ${e.toString()}');
-      }
-    }
+    _showErrorDialog('Emergency calling feature not available. Please contact your caretaker directly.');
   }
 
   void _showErrorDialog(String message) {
@@ -1065,7 +971,7 @@ class ReminderDialog extends StatelessWidget {
   final String description;
   final String time;
   final String reminderId;
-  final dynamic timestamp;  // Changed to dynamic to handle both int and null
+  final dynamic timestamp;
   final bool isSnooze;
 
   const ReminderDialog({
@@ -1133,14 +1039,14 @@ class ReminderDialog extends StatelessWidget {
       // Create a COMPLETELY NEW reminder 5 minutes from now
       final newTime = DateTime.now().add(const Duration(minutes: 5));
 
-      // Create NEW reminder in 'reminders' collection (not snoozed_reminders)
+      // Create NEW reminder in 'reminders' collection
       final docRef = await FirebaseFirestore.instance.collection('reminders').add({
         'patientId': reminderData['patientId'],
         'title': reminderData['title'],
         'description': reminderData['description'],
-        'time': Timestamp.fromDate(newTime), // New time: 5 minutes from now
+        'time': Timestamp.fromDate(newTime),
         'completed': false,
-        'isSnoozed': true, // Flag to hide from "Today's Reminders" box
+        'isSnoozed': true,
         'createdAt': FieldValue.serverTimestamp(),
       });
 
@@ -1153,7 +1059,7 @@ class ReminderDialog extends StatelessWidget {
         body: '${reminderData['description'] ?? ''} (Snoozed)',
         scheduledTime: newTime,
         payload: {
-          'reminderId': docRef.id, // NEW reminder ID
+          'reminderId': docRef.id,
           'title': reminderData['title'] ?? 'Reminder',
           'description': reminderData['description'] ?? '',
           'timestamp': newTime.millisecondsSinceEpoch,
