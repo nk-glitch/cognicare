@@ -19,7 +19,7 @@ class CalendarPage extends StatefulWidget {
 
 class _CalendarPageState extends State<CalendarPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  
+
   CalendarFormat _calendarFormat = CalendarFormat.month;
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
@@ -36,7 +36,7 @@ class _CalendarPageState extends State<CalendarPage> {
 
   Future<void> _loadReminders() async {
     setState(() => _isLoading = true);
-    
+
     try {
       // Get reminders for this patient
       final snapshot = await _firestore
@@ -50,12 +50,17 @@ class _CalendarPageState extends State<CalendarPage> {
       for (var doc in snapshot.docs) {
         final data = doc.data();
         final timestamp = data['time'] as Timestamp?;
-        
+
+        // Skip snoozed reminders
+        if (data['isSnoozed'] == true) {
+          continue;
+        }
+
         if (timestamp != null) {
           final date = timestamp.toDate();
           // Normalize to midnight for grouping by day
           final normalizedDate = DateTime(date.year, date.month, date.day);
-          
+
           final event = {
             'id': doc.id,
             'title': data['title'] ?? 'Untitled',
@@ -116,9 +121,9 @@ class _CalendarPageState extends State<CalendarPage> {
           .collection('reminders')
           .doc(reminderId)
           .update({'completed': !currentStatus});
-      
+
       await _loadReminders();
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -139,7 +144,7 @@ class _CalendarPageState extends State<CalendarPage> {
     try {
       await _firestore.collection('reminders').doc(reminderId).delete();
       await _loadReminders();
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -183,18 +188,18 @@ class _CalendarPageState extends State<CalendarPage> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
-              onRefresh: _handleRefresh,
-              color: const Color(0xFF8FA9C9),
-              child: Column(
-                children: [
-                  _buildCalendar(),
-                  const SizedBox(height: 8),
-                  Expanded(
-                    child: _buildEventList(),
-                  ),
-                ],
-              ),
+        onRefresh: _handleRefresh,
+        color: const Color(0xFF8FA9C9),
+        child: Column(
+          children: [
+            _buildCalendar(),
+            const SizedBox(height: 8),
+            Expanded(
+              child: _buildEventList(),
             ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -314,7 +319,7 @@ class _CalendarPageState extends State<CalendarPage> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isCompleted 
+          color: isCompleted
               ? const Color(0xFF8FA9C9).withOpacity(0.3)
               : const Color(0xFFE8C4C8),
           width: 2,
@@ -351,21 +356,21 @@ class _CalendarPageState extends State<CalendarPage> {
                         color: const Color(0xFF8FA9C9),
                         width: 2,
                       ),
-                      color: isCompleted 
+                      color: isCompleted
                           ? const Color(0xFF8FA9C9)
                           : Colors.transparent,
                     ),
                     child: isCompleted
                         ? const Icon(
-                            Icons.check,
-                            size: 18,
-                            color: Colors.white,
-                          )
+                      Icons.check,
+                      size: 18,
+                      color: Colors.white,
+                    )
                         : null,
                   ),
                 ),
                 const SizedBox(width: 16),
-                
+
                 // Event details
                 Expanded(
                   child: Column(
@@ -415,7 +420,7 @@ class _CalendarPageState extends State<CalendarPage> {
                     ],
                   ),
                 ),
-                
+
                 // Delete button (only for caretakers)
                 if (widget.isCaretaker)
                   IconButton(
