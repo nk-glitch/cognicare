@@ -9,7 +9,6 @@ import '../../services/location_service.dart';
 import '../../services/notification_service.dart';
 import '../profile_page.dart';
 import '../auth/login_page.dart';
-import '../games/games_hub_page.dart';
 
 class PatientHomePage extends StatefulWidget {
   const PatientHomePage({super.key});
@@ -29,9 +28,8 @@ class _PatientHomePageState extends State<PatientHomePage>
   Timer? _reminderCheckTimer;
 
   String patientName = "Loading...";
-  String emergencyContactName = "Not set";
-  String emergencyContactPhone = "";
-  String currentLocation = "Loading...";
+  String caretakerName = "Not connected";
+  String caretakerPhone = "";
   String currentActivity = "No activity scheduled";
   List<Map<String, dynamic>> reminders = [];
   bool _isLoading = true;
@@ -154,6 +152,61 @@ class _PatientHomePageState extends State<PatientHomePage>
     );
   }
 
+  void _showSignOutConfirmation() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.logout, color: Color(0xFF8FA9C9)),
+            SizedBox(width: 12),
+            Text('Sign Out'),
+          ],
+        ),
+        content: const Text(
+          'Are you sure you want to sign out?',
+          style: TextStyle(fontSize: 16),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(
+                color: Color(0xFF666666),
+                fontSize: 16,
+              ),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context); // Close dialog first
+              await _authService.signOut();
+              if (mounted) {
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LoginPage()),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF8FA9C9),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text(
+              'Sign Out',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Share location in background; never blocks UI or crashes the app.
   Future<void> _shareLocationInBackground() async {
     try {
@@ -214,14 +267,8 @@ class _PatientHomePageState extends State<PatientHomePage>
           });
         }
 
-        final patientData = await _authService.getPatientData(user.uid);
-        if (patientData != null) {
-          setState(() {
-            emergencyContactName = patientData['emergencyContact'] ?? 'Not set';
-            emergencyContactPhone = patientData['emergencyContactNumber'] ?? '';
-            currentLocation = patientData['address'] ?? 'Home';
-          });
-        }
+        // Load connected caretaker information
+        await _loadCaretakerInfo(user.uid);
 
         // Load today's reminders
         await _loadTodaysReminders(user.uid);
@@ -232,6 +279,43 @@ class _PatientHomePageState extends State<PatientHomePage>
     } finally {
       setState(() {
         _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _loadCaretakerInfo(String patientId) async {
+    try {
+      // Find accepted relationship with a caretaker
+      final relationshipSnapshot = await _firestore
+          .collection('patient_caretaker_relationships')
+          .where('patientId', isEqualTo: patientId)
+          .where('status', isEqualTo: 'accepted')
+          .limit(1)
+          .get();
+
+      if (relationshipSnapshot.docs.isNotEmpty) {
+        final relationship = relationshipSnapshot.docs.first.data();
+        final caretakerId = relationship['caretakerId'];
+
+        // Get caretaker user data
+        final caretakerData = await _authService.getUserData(caretakerId);
+        if (caretakerData != null) {
+          setState(() {
+            caretakerName = '${caretakerData['firstName']} ${caretakerData['lastName']}';
+            caretakerPhone = caretakerData['phone'] ?? '';
+          });
+        }
+      } else {
+        setState(() {
+          caretakerName = 'Not connected';
+          caretakerPhone = '';
+        });
+      }
+    } catch (e) {
+      print('Error loading caretaker info: $e');
+      setState(() {
+        caretakerName = 'Not connected';
+        caretakerPhone = '';
       });
     }
   }
@@ -268,6 +352,53 @@ class _PatientHomePageState extends State<PatientHomePage>
     }
   }
 
+  /// Handle pull-to-refresh
+  Future<void> _handleRefresh() async {
+    try {
+      final user = _authService.currentUser;
+      if (user == null) return;
+
+      // Reload user data
+      final userData = await _authService.getUserData(user.uid);
+      if (userData != null && mounted) {
+        setState(() {
+          patientName = '${userData['firstName']} ${userData['lastName']}';
+        });
+      }
+
+      // Reload caretaker info and reminders
+      await Future.wait([
+        _loadCaretakerInfo(user.uid),
+        _loadTodaysReminders(user.uid),
+        _checkForPendingReminders(),
+      ]);
+
+      // Re-share location in background (don't await)
+      _shareLocationInBackground();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Page refreshed'),
+            backgroundColor: Color(0xFF8FA9C9),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error refreshing: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error refreshing: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -288,52 +419,48 @@ class _PatientHomePageState extends State<PatientHomePage>
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
       body: SafeArea(
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Landing Page (Patient)',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Color(0xFF666666),
-                        fontWeight: FontWeight.w500,
+        child: RefreshIndicator(
+          onRefresh: _handleRefresh,
+          color: const Color(0xFF8FA9C9),
+          backgroundColor: Colors.white,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Landing Page (Patient)',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Color(0xFF666666),
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
-                    ),
-                    IconButton(
-                      onPressed: () async {
-                        await _authService.signOut();
-                        if (mounted) {
-                          Navigator.pushReplacement(
-                            context,
-                            MaterialPageRoute(builder: (_) => const LoginPage()),
-                          );
-                        }
-                      },
-                      icon: const Icon(Icons.logout),
-                      tooltip: 'Logout',
-                      color: const Color(0xFF666666),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                _buildEmergencyButton(),
-                const SizedBox(height: 20),
-                _buildWelcomeCard(),
-                const SizedBox(height: 20),
-                _buildLocationShareCard(),
-                const SizedBox(height: 20),
-                _buildActivityCard(),
-                const SizedBox(height: 20),
-                _buildGamesCard(),
-                const SizedBox(height: 20),
-                _buildRemindersCard(),
-              ],
+                      IconButton(
+                        onPressed: _showSignOutConfirmation,
+                        icon: const Icon(Icons.logout),
+                        tooltip: 'Logout',
+                        color: const Color(0xFF666666),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  _buildEmergencyButton(),
+                  const SizedBox(height: 20),
+                  _buildWelcomeCard(),
+                  const SizedBox(height: 20),
+                  _buildLocationShareCard(),
+                  const SizedBox(height: 20),
+                  _buildActivityCard(),
+                  const SizedBox(height: 20),
+                  _buildRemindersCard(),
+                ],
+              ),
             ),
           ),
         ),
@@ -441,36 +568,10 @@ class _PatientHomePageState extends State<PatientHomePage>
             ],
           ),
           const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: const Color(0xFFD4ADB1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.home,
-                  size: 22,
-                  color: Color(0xFF3D2C31),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  currentLocation.isEmpty ? 'You are Home' : currentLocation,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF3D2C31),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
           const Divider(color: Color(0xFFD4ADB1), thickness: 1.5),
           const SizedBox(height: 12),
           const Text(
-            'Emergency Contact',
+            'Your Caretaker',
             style: TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.bold,
@@ -479,14 +580,14 @@ class _PatientHomePageState extends State<PatientHomePage>
           ),
           const SizedBox(height: 8),
           Text(
-            emergencyContactName,
+            caretakerName,
             style: const TextStyle(
               fontSize: 16,
               color: Color(0xFF5A4046),
               fontWeight: FontWeight.w500,
             ),
           ),
-          if (emergencyContactPhone.isNotEmpty) ...[
+          if (caretakerPhone.isNotEmpty) ...[
             const SizedBox(height: 4),
             Row(
               children: [
@@ -497,7 +598,7 @@ class _PatientHomePageState extends State<PatientHomePage>
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  emergencyContactPhone,
+                  caretakerPhone,
                   style: const TextStyle(
                     fontSize: 16,
                     color: Color(0xFF5A4046),
@@ -505,6 +606,36 @@ class _PatientHomePageState extends State<PatientHomePage>
                   ),
                 ),
               ],
+            ),
+          ],
+          if (caretakerPhone.isEmpty && caretakerName == 'Not connected') ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFD4ADB1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.info_outline,
+                    size: 20,
+                    color: Color(0xFF5A4046),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Connect with a caretaker in your Profile',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Color(0xFF3D2C31),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ],
@@ -658,70 +789,6 @@ class _PatientHomePageState extends State<PatientHomePage>
     );
   }
 
-  Widget _buildGamesCard() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFF8FA9C9).withOpacity(0.5), width: 2),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => GamesHubPage(
-                  playerName: patientName,
-                  isCaretaker: false,
-                ),
-              ),
-            );
-          },
-          borderRadius: BorderRadius.circular(20),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF8FA9C9).withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: const Icon(
-                  Icons.games,
-                  size: 36,
-                  color: Color(0xFF8FA9C9),
-                ),
-              ),
-              const SizedBox(width: 16),
-              const Expanded(
-                child: Text(
-                  'Games & Activities',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF3D2C31),
-                  ),
-                ),
-              ),
-              const Icon(Icons.chevron_right, color: Color(0xFF8FA9C9)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildRemindersCard() {
     return Container(
       width: double.infinity,
@@ -810,12 +877,12 @@ class _PatientHomePageState extends State<PatientHomePage>
   }
 
   void _handleEmergencyCall() async {
-    if (emergencyContactPhone.isEmpty) {
-      _showErrorDialog('No emergency contact number set');
+    if (caretakerPhone.isEmpty) {
+      _showErrorDialog('No caretaker connected. Please connect with a caretaker in your Profile to enable emergency calls.');
       return;
     }
 
-    final phoneNumber = emergencyContactPhone.replaceAll(RegExp(r'[^\d]'), '');
+    final phoneNumber = caretakerPhone.replaceAll(RegExp(r'[^\d]'), '');
     final uri = Uri(scheme: 'tel', path: phoneNumber);
 
     try {
@@ -887,26 +954,18 @@ class ReminderDialog extends StatelessWidget {
 
   Future<void> _snoozeReminder(BuildContext context) async {
     try {
-      // Get current user's UID
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
+      if (reminderId.isEmpty) return;
 
-      // Create a new reminder 5 minutes from now
+      // Update the same reminder's time to 5 minutes from now
       final newTime = DateTime.now().add(const Duration(minutes: 5));
 
-      await FirebaseFirestore.instance.collection('reminders').add({
-        'title': title,
-        'description': description,
+      await FirebaseFirestore.instance
+          .collection('reminders')
+          .doc(reminderId)
+          .update({
         'time': Timestamp.fromDate(newTime),
         'completed': false,
-        'patientId': user.uid,
-        'repeating': 'once',
-        'type': 'reminder',
-        'createdAt': FieldValue.serverTimestamp(),
       });
-
-      // Mark original reminder as completed
-      await _markAsComplete(context);
     } catch (e) {
       print('Error snoozing reminder: $e');
     }
