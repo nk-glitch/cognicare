@@ -4,18 +4,11 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
-import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'dart:async';
 import '../../services/auth_service.dart';
 import '../../services/location_service.dart';
 import '../../services/notification_service.dart';
 import '../profile_page.dart';
 import '../auth/login_page.dart';
-import '../caretaker/calendar_page.dart';
 
 class PatientHomePage extends StatefulWidget {
   const PatientHomePage({super.key});
@@ -33,15 +26,21 @@ class _PatientHomePageState extends State<PatientHomePage>
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
   Timer? _reminderCheckTimer;
+  StreamSubscription<QuerySnapshot>? _reminderSubscription;
+  StreamSubscription<QuerySnapshot>? _snoozedReminderSubscription;
 
   String patientName = "Loading...";
-  String caretakerName = "Not connected";
-  String caretakerPhone = "";
+  String emergencyContactName = "Not set";
+  String emergencyContactPhone = "";
+  String currentLocation = "Loading...";
   String currentActivity = "No activity scheduled";
   List<Map<String, dynamic>> reminders = [];
   bool _isLoading = true;
   bool _isSharingLocation = false;
   bool _locationShared = false;
+
+  // Track which reminder dialogs are currently showing to prevent duplicates
+  final Set<String> _showingDialogs = {};
 
   @override
   void initState() {
@@ -65,7 +64,11 @@ class _PatientHomePageState extends State<PatientHomePage>
       _showReminderDialog(data);
     };
 
-    // Start periodic reminder check timer (every 30 seconds)
+    // Set up real-time listener for reminders
+    _setupReminderListener();
+    // Note: Snoozed reminders are now created as regular reminders with isSnoozed flag
+
+    // Start periodic reminder check timer (every 60 seconds)
     _startReminderCheckTimer();
 
     _loadPatientData();
@@ -85,9 +88,116 @@ class _PatientHomePageState extends State<PatientHomePage>
   }
 
   void _startReminderCheckTimer() {
-    _reminderCheckTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+    _reminderCheckTimer = Timer.periodic(const Duration(seconds: 60), (timer) {
       if (mounted) {
         _checkForPendingReminders();
+      }
+    });
+  }
+
+  void _setupReminderListener() {
+    final user = _authService.currentUser;
+    if (user == null) return;
+
+    // Listen to all incomplete reminders for this patient
+    _reminderSubscription = _firestore
+        .collection('reminders')
+        .where('patientId', isEqualTo: user.uid)
+        .where('completed', isEqualTo: false)
+        .snapshots()
+        .listen((snapshot) {
+      if (!mounted) return;
+
+      final now = DateTime.now();
+
+      for (var doc in snapshot.docs) {
+        final reminder = doc.data();
+
+        // Safely get time with null check
+        final timeValue = reminder['time'];
+        if (timeValue == null) continue;
+
+        final time = (timeValue as Timestamp).toDate();
+
+        // Check if reminder is due (within 1 minute of scheduled time)
+        final difference = now.difference(time);
+        if (difference.inSeconds >= 0 && difference.inSeconds < 60) {
+          // Format time
+          final timeStr = DateFormat('h:mm a').format(time);
+
+          // Show dialog
+          _showReminderDialog({
+            'reminderId': doc.id,
+            'title': reminder['title'] ?? 'Reminder',
+            'description': reminder['description'] ?? '',
+            'time': timeStr,
+            'timestamp': time.millisecondsSinceEpoch,
+          });
+
+          // Only show one at a time
+          break;
+        }
+      }
+    });
+  }
+
+  void _setupSnoozedReminderListener() {
+    final user = _authService.currentUser;
+    if (user == null) return;
+
+    // Listen to snoozed reminders
+    _snoozedReminderSubscription = _firestore
+        .collection('snoozed_reminders')
+        .where('patientId', isEqualTo: user.uid)
+        .where('completed', isEqualTo: false)
+        .snapshots()
+        .listen((snapshot) {
+      if (!mounted) return;
+
+      final now = DateTime.now();
+
+      for (var doc in snapshot.docs) {
+        final reminder = doc.data();
+
+        // Safely get time with null check
+        final timeValue = reminder['time'];
+        if (timeValue == null) {
+          print('Snoozed reminder ${doc.id} has null time, skipping');
+          continue;
+        }
+
+        final time = (timeValue as Timestamp).toDate();
+
+        // Check if snoozed reminder is due (within 1 minute of snooze time)
+        final difference = now.difference(time);
+        if (difference.inSeconds >= 0 && difference.inSeconds < 60) {
+          // Use ORIGINAL time for display with null safety
+          String originalTimeStr;
+          final originalTimeValue = reminder['originalTime'];
+          if (originalTimeValue != null && originalTimeValue is Timestamp) {
+            final originalTime = originalTimeValue.toDate();
+            originalTimeStr = DateFormat('h:mm a').format(originalTime);
+          } else {
+            // Fallback to snoozed time if originalTime is null
+            originalTimeStr = DateFormat('h:mm a').format(time);
+          }
+
+          // Show dialog with ORIGINAL reminder ID
+          _showReminderDialog({
+            'reminderId': reminder['originalReminderId'] ?? doc.id,
+            'title': reminder['title'] ?? 'Reminder',
+            'description': reminder['description'] ?? '',
+            'time': originalTimeStr, // Show original scheduled time
+            'timestamp': time.millisecondsSinceEpoch,
+            'isSnooze': true,
+          });
+
+          // Delete the snoozed reminder after showing
+          _firestore.collection('snoozed_reminders').doc(doc.id).delete();
+
+          // Only show one at a time
+          break;
+        }
       }
     });
   }
@@ -129,8 +239,11 @@ class _PatientHomePageState extends State<PatientHomePage>
         final doc = snapshot.docs.first;
         final reminder = doc.data();
 
-        // Format time
-        final time = (reminder['time'] as Timestamp).toDate();
+        // Format time with null check
+        final timeValue = reminder['time'];
+        if (timeValue == null) return;
+
+        final time = (timeValue as Timestamp).toDate();
         final timeStr = DateFormat('h:mm a').format(time);
 
         // Show dialog
@@ -139,6 +252,7 @@ class _PatientHomePageState extends State<PatientHomePage>
           'title': reminder['title'] ?? 'Reminder',
           'description': reminder['description'] ?? '',
           'time': timeStr,
+          'timestamp': time.millisecondsSinceEpoch,
         });
       }
     } catch (e) {
@@ -147,6 +261,21 @@ class _PatientHomePageState extends State<PatientHomePage>
   }
 
   void _showReminderDialog(Map<String, dynamic> reminderData) {
+    if (!mounted) return;
+
+    final reminderId = reminderData['reminderId'] ?? '';
+    if (reminderId.isEmpty) return;
+
+    // Check if this dialog is already showing
+    if (_showingDialogs.contains(reminderId)) {
+      print('Dialog for reminder $reminderId is already showing, skipping duplicate');
+      return;
+    }
+
+    // Mark this dialog as showing
+    _showingDialogs.add(reminderId);
+    print('Showing dialog for reminder $reminderId');
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -154,9 +283,15 @@ class _PatientHomePageState extends State<PatientHomePage>
         title: reminderData['title'] ?? 'Reminder',
         description: reminderData['description'] ?? '',
         time: reminderData['time'] ?? '',
-        reminderId: reminderData['reminderId'] ?? '',
+        reminderId: reminderId,
+        timestamp: reminderData['timestamp'],
+        isSnooze: reminderData['isSnooze'] == true,
       ),
-    );
+    ).then((_) {
+      // Remove from tracking when dialog is dismissed
+      _showingDialogs.remove(reminderId);
+      print('Dialog for reminder $reminderId dismissed and removed from tracking');
+    });
   }
 
   void _showSignOutConfirmation() {
@@ -268,62 +403,32 @@ class _PatientHomePageState extends State<PatientHomePage>
       final user = _authService.currentUser;
       if (user != null) {
         final userData = await _authService.getUserData(user.uid);
-        if (userData != null) {
+        if (userData != null && mounted) {
           setState(() {
             patientName = '${userData['firstName']} ${userData['lastName']}';
           });
         }
 
-        // Load connected caretaker information
-        await _loadCaretakerInfo(user.uid);
+        final patientData = await _authService.getPatientData(user.uid);
+        if (patientData != null && mounted) {
+          setState(() {
+            emergencyContactName = patientData['emergencyContact'] ?? 'Not set';
+            emergencyContactPhone = patientData['emergencyContactNumber'] ?? '';
+            currentLocation = patientData['address'] ?? 'Home';
+          });
+        }
 
         // Load today's reminders
         await _loadTodaysReminders(user.uid);
-        // Location is shared in background via _shareLocationInBackground() after UI loads
       }
     } catch (e) {
       print('Error loading patient data: $e');
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
-    }
-  }
-
-  Future<void> _loadCaretakerInfo(String patientId) async {
-    try {
-      // Find accepted relationship with a caretaker
-      final relationshipSnapshot = await _firestore
-          .collection('patient_caretaker_relationships')
-          .where('patientId', isEqualTo: patientId)
-          .where('status', isEqualTo: 'accepted')
-          .limit(1)
-          .get();
-
-      if (relationshipSnapshot.docs.isNotEmpty) {
-        final relationship = relationshipSnapshot.docs.first.data();
-        final caretakerId = relationship['caretakerId'];
-
-        // Get caretaker user data
-        final caretakerData = await _authService.getUserData(caretakerId);
-        if (caretakerData != null) {
-          setState(() {
-            caretakerName = '${caretakerData['firstName']} ${caretakerData['lastName']}';
-            caretakerPhone = caretakerData['phone'] ?? '';
-          });
-        }
-      } else {
+      if (mounted) {
         setState(() {
-          caretakerName = 'Not connected';
-          caretakerPhone = '';
+          _isLoading = false;
         });
       }
-    } catch (e) {
-      print('Error loading caretaker info: $e');
-      setState(() {
-        caretakerName = 'Not connected';
-        caretakerPhone = '';
-      });
     }
   }
 
@@ -341,19 +446,22 @@ class _PatientHomePageState extends State<PatientHomePage>
           .orderBy('time')
           .get();
 
-      setState(() {
-        reminders = snapshot.docs
-            .map((doc) => {'id': doc.id, ...doc.data()})
-            .toList();
+      if (mounted) {
+        setState(() {
+          reminders = snapshot.docs
+              .map((doc) => {'id': doc.id, ...doc.data()})
+              .where((reminder) => reminder['isSnoozed'] != true) // Exclude snoozed reminders
+              .toList();
 
-        // Set current activity to the next upcoming reminder
-        if (reminders.isNotEmpty) {
-          final nextReminder = reminders.first;
-          final time = (nextReminder['time'] as Timestamp?)?.toDate();
-          final timeStr = time != null ? DateFormat('h:mm a').format(time) : '';
-          currentActivity = '${nextReminder['title']} at $timeStr';
-        }
-      });
+          // Set current activity to the next upcoming reminder
+          if (reminders.isNotEmpty) {
+            final nextReminder = reminders.first;
+            final time = (nextReminder['time'] as Timestamp?)?.toDate();
+            final timeStr = time != null ? DateFormat('h:mm a').format(time) : '';
+            currentActivity = '${nextReminder['title']} at $timeStr';
+          }
+        });
+      }
     } catch (e) {
       print('Error loading reminders: $e');
     }
@@ -365,7 +473,7 @@ class _PatientHomePageState extends State<PatientHomePage>
       final user = _authService.currentUser;
       if (user == null) return;
 
-      // Reload user data
+      // Reload user and patient data
       final userData = await _authService.getUserData(user.uid);
       if (userData != null && mounted) {
         setState(() {
@@ -373,9 +481,17 @@ class _PatientHomePageState extends State<PatientHomePage>
         });
       }
 
-      // Reload caretaker info and reminders
+      final patientData = await _authService.getPatientData(user.uid);
+      if (patientData != null && mounted) {
+        setState(() {
+          emergencyContactName = patientData['emergencyContact'] ?? 'Not set';
+          emergencyContactPhone = patientData['emergencyContactNumber'] ?? '';
+          currentLocation = patientData['address'] ?? 'Home';
+        });
+      }
+
+      // Reload reminders and check for pending ones
       await Future.wait([
-        _loadCaretakerInfo(user.uid),
         _loadTodaysReminders(user.uid),
         _checkForPendingReminders(),
       ]);
@@ -411,6 +527,9 @@ class _PatientHomePageState extends State<PatientHomePage>
     WidgetsBinding.instance.removeObserver(this);
     _pulseController.dispose();
     _reminderCheckTimer?.cancel();
+    _reminderSubscription?.cancel();
+    _snoozedReminderSubscription?.cancel();
+    _showingDialogs.clear(); // Clear dialog tracking
     super.dispose();
   }
 
@@ -462,8 +581,6 @@ class _PatientHomePageState extends State<PatientHomePage>
                   _buildWelcomeCard(),
                   const SizedBox(height: 20),
                   _buildLocationShareCard(),
-                  const SizedBox(height: 20),
-                  _buildCalendarButton(),
                   const SizedBox(height: 20),
                   _buildActivityCard(),
                   const SizedBox(height: 20),
@@ -577,10 +694,36 @@ class _PatientHomePageState extends State<PatientHomePage>
             ],
           ),
           const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFD4ADB1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.home,
+                  size: 22,
+                  color: Color(0xFF3D2C31),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  currentLocation.isEmpty ? 'You are Home' : currentLocation,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF3D2C31),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
           const Divider(color: Color(0xFFD4ADB1), thickness: 1.5),
           const SizedBox(height: 12),
           const Text(
-            'Your Caretaker',
+            'Emergency Contact',
             style: TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.bold,
@@ -589,14 +732,14 @@ class _PatientHomePageState extends State<PatientHomePage>
           ),
           const SizedBox(height: 8),
           Text(
-            caretakerName,
+            emergencyContactName,
             style: const TextStyle(
               fontSize: 16,
               color: Color(0xFF5A4046),
               fontWeight: FontWeight.w500,
             ),
           ),
-          if (caretakerPhone.isNotEmpty) ...[
+          if (emergencyContactPhone.isNotEmpty) ...[
             const SizedBox(height: 4),
             Row(
               children: [
@@ -607,7 +750,7 @@ class _PatientHomePageState extends State<PatientHomePage>
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  caretakerPhone,
+                  emergencyContactPhone,
                   style: const TextStyle(
                     fontSize: 16,
                     color: Color(0xFF5A4046),
@@ -615,36 +758,6 @@ class _PatientHomePageState extends State<PatientHomePage>
                   ),
                 ),
               ],
-            ),
-          ],
-          if (caretakerPhone.isEmpty && caretakerName == 'Not connected') ...[
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFD4ADB1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.info_outline,
-                    size: 20,
-                    color: Color(0xFF5A4046),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Connect with a caretaker in your Profile',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Color(0xFF3D2C31),
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
             ),
           ],
         ],
@@ -749,84 +862,6 @@ class _PatientHomePageState extends State<PatientHomePage>
     );
   }
 
-  Widget _buildCalendarButton() {
-    final user = _authService.currentUser;
-    if (user == null) return const SizedBox.shrink();
-
-    return Container(
-      width: double.infinity,
-      height: 80,
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF8FA9C9), Color(0xFFA5BDD4)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF8FA9C9).withOpacity(0.3),
-            blurRadius: 15,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => CalendarPage(
-                  patientId: user.uid,
-                  isCaretaker: false,
-                ),
-              ),
-            );
-          },
-          borderRadius: BorderRadius.circular(20),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.3),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: const Icon(
-                    Icons.calendar_month,
-                    size: 32,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                const Expanded(
-                  child: Text(
-                    'View Calendar',
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ),
-                const Icon(
-                  Icons.chevron_right,
-                  color: Colors.white,
-                  size: 28,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildActivityCard() {
     return Container(
       width: double.infinity,
@@ -925,6 +960,8 @@ class _PatientHomePageState extends State<PatientHomePage>
             ...reminders.map((reminder) {
               final time = (reminder['time'] as Timestamp?)?.toDate();
               final timeStr = time != null ? DateFormat('h:mm a').format(time) : '';
+              final description = reminder['description'] as String? ?? '';
+
               return Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
@@ -951,6 +988,17 @@ class _PatientHomePageState extends State<PatientHomePage>
                         style: const TextStyle(
                           fontSize: 14,
                           color: Color(0xFF5A4046),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                    if (description.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        description,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: Color(0xFF5A4046),
                         ),
                       ),
                     ],
@@ -964,12 +1012,12 @@ class _PatientHomePageState extends State<PatientHomePage>
   }
 
   void _handleEmergencyCall() async {
-    if (caretakerPhone.isEmpty) {
-      _showErrorDialog('No caretaker connected. Please connect with a caretaker in your Profile to enable emergency calls.');
+    if (emergencyContactPhone.isEmpty) {
+      _showErrorDialog('No emergency contact number set');
       return;
     }
 
-    final phoneNumber = caretakerPhone.replaceAll(RegExp(r'[^\d]'), '');
+    final phoneNumber = emergencyContactPhone.replaceAll(RegExp(r'[^\d]'), '');
     final uri = Uri(scheme: 'tel', path: phoneNumber);
 
     try {
@@ -1017,6 +1065,8 @@ class ReminderDialog extends StatelessWidget {
   final String description;
   final String time;
   final String reminderId;
+  final dynamic timestamp;  // Changed to dynamic to handle both int and null
+  final bool isSnooze;
 
   const ReminderDialog({
     super.key,
@@ -1024,6 +1074,8 @@ class ReminderDialog extends StatelessWidget {
     required this.description,
     required this.time,
     required this.reminderId,
+    this.timestamp,
+    this.isSnooze = false,
   });
 
   Future<void> _markAsComplete(BuildContext context) async {
@@ -1033,6 +1085,23 @@ class ReminderDialog extends StatelessWidget {
             .collection('reminders')
             .doc(reminderId)
             .update({'completed': true});
+
+        // Clear notification tracking so it can be shown again if needed
+        if (timestamp != null) {
+          try {
+            final timestampInt = timestamp is int ? timestamp : int.tryParse(timestamp.toString());
+            if (timestampInt != null) {
+              final scheduledTime = DateTime.fromMillisecondsSinceEpoch(timestampInt);
+              NotificationService.clearNotificationTracking(
+                reminderId,
+                scheduledTime,
+                isSnooze: isSnooze,
+              );
+            }
+          } catch (e) {
+            print('Error clearing notification tracking: $e');
+          }
+        }
       }
     } catch (e) {
       print('Error marking reminder as complete: $e');
@@ -1043,16 +1112,56 @@ class ReminderDialog extends StatelessWidget {
     try {
       if (reminderId.isEmpty) return;
 
-      // Update the same reminder's time to 5 minutes from now
-      final newTime = DateTime.now().add(const Duration(minutes: 5));
+      // Get the original reminder data
+      final originalReminder = await FirebaseFirestore.instance
+          .collection('reminders')
+          .doc(reminderId)
+          .get();
 
+      if (!originalReminder.exists) return;
+
+      final reminderData = originalReminder.data()!;
+
+      // Mark the ORIGINAL reminder as complete immediately
       await FirebaseFirestore.instance
           .collection('reminders')
           .doc(reminderId)
-          .update({
-        'time': Timestamp.fromDate(newTime),
+          .update({'completed': true});
+
+      print('Marked original reminder $reminderId as complete');
+
+      // Create a COMPLETELY NEW reminder 5 minutes from now
+      final newTime = DateTime.now().add(const Duration(minutes: 5));
+
+      // Create NEW reminder in 'reminders' collection (not snoozed_reminders)
+      final docRef = await FirebaseFirestore.instance.collection('reminders').add({
+        'patientId': reminderData['patientId'],
+        'title': reminderData['title'],
+        'description': reminderData['description'],
+        'time': Timestamp.fromDate(newTime), // New time: 5 minutes from now
         'completed': false,
+        'isSnoozed': true, // Flag to hide from "Today's Reminders" box
+        'createdAt': FieldValue.serverTimestamp(),
       });
+
+      print('Created new snoozed reminder ${docRef.id} for $newTime');
+
+      // Schedule local notification for the NEW reminder
+      await NotificationService.scheduleLocalNotification(
+        id: docRef.id.hashCode,
+        title: reminderData['title'] ?? 'Reminder',
+        body: '${reminderData['description'] ?? ''} (Snoozed)',
+        scheduledTime: newTime,
+        payload: {
+          'reminderId': docRef.id, // NEW reminder ID
+          'title': reminderData['title'] ?? 'Reminder',
+          'description': reminderData['description'] ?? '',
+          'timestamp': newTime.millisecondsSinceEpoch,
+          'isSnooze': true,
+        },
+      );
+
+      print('Scheduled local notification for new reminder ${docRef.id}');
     } catch (e) {
       print('Error snoozing reminder: $e');
     }
@@ -1090,13 +1199,24 @@ class ReminderDialog extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Scheduled for: $time',
+              isSnooze ? 'Original time: $time' : 'Scheduled for: $time',
               style: const TextStyle(
                 fontSize: 16,
                 color: Color(0xFF5A4046),
                 fontWeight: FontWeight.w600,
               ),
             ),
+            if (isSnooze) ...[
+              const SizedBox(height: 4),
+              const Text(
+                '(Snoozed)',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Color(0xFF8FA9C9),
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ],
             if (description.isNotEmpty) ...[
               const SizedBox(height: 16),
               Container(

@@ -29,6 +29,7 @@ dependencies:
   latlong2: ^0.9.0
   permission_handler: ^11.0.1
 
+
   # State management & storage
   provider: ^6.1.1
   shared_preferences: ^2.3.5
@@ -40,6 +41,8 @@ dependencies:
   # Phone calling
   url_launcher: ^6.2.1
 
+  # Timezone
+  timezone: ^0.10.0
 
 dev_dependencies:
   flutter_test:
