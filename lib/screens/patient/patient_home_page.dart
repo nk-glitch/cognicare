@@ -4,11 +4,18 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:async';
 import '../../services/auth_service.dart';
 import '../../services/location_service.dart';
 import '../../services/notification_service.dart';
 import '../profile_page.dart';
 import '../auth/login_page.dart';
+import '../caretaker/calendar_page.dart';
 
 class PatientHomePage extends StatefulWidget {
   const PatientHomePage({super.key});
@@ -456,6 +463,8 @@ class _PatientHomePageState extends State<PatientHomePage>
                   const SizedBox(height: 20),
                   _buildLocationShareCard(),
                   const SizedBox(height: 20),
+                  _buildCalendarButton(),
+                  const SizedBox(height: 20),
                   _buildActivityCard(),
                   const SizedBox(height: 20),
                   _buildRemindersCard(),
@@ -736,6 +745,84 @@ class _PatientHomePageState extends State<PatientHomePage>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildCalendarButton() {
+    final user = _authService.currentUser;
+    if (user == null) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      height: 80,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF8FA9C9), Color(0xFFA5BDD4)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF8FA9C9).withOpacity(0.3),
+            blurRadius: 15,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => CalendarPage(
+                  patientId: user.uid,
+                  isCaretaker: false,
+                ),
+              ),
+            );
+          },
+          borderRadius: BorderRadius.circular(20),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Icon(
+                    Icons.calendar_month,
+                    size: 32,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                const Expanded(
+                  child: Text(
+                    'View Calendar',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+                const Icon(
+                  Icons.chevron_right,
+                  color: Colors.white,
+                  size: 28,
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

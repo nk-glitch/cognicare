@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'location_map_page.dart';
+import 'calendar_page.dart';
 
 class PatientDetailPage extends StatefulWidget {
   final String patientId;
@@ -347,7 +348,17 @@ class _PatientDetailPageState extends State<PatientDetailPage>
         _buildHorizontalActionBar(
           icon: Icons.calendar_month,
           label: 'Calendar',
-          onTap: () => _showComingSoon('Calendar'),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => CalendarPage(
+                  patientId: widget.patientId,
+                  isCaretaker: true,
+                ),
+              ),
+            );
+          },
         ),
         const SizedBox(height: 16),
         _buildHorizontalActionBar(
@@ -494,7 +505,15 @@ class _PatientDetailPageState extends State<PatientDetailPage>
   void _handleNavigation(int index) {
     switch (index) {
       case 0:
-        _showComingSoon('Calendar');
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => CalendarPage(
+              patientId: widget.patientId,
+              isCaretaker: true,
+            ),
+          ),
+        );
         break;
       case 1:
         Navigator.push(
@@ -523,19 +542,6 @@ class _PatientDetailPageState extends State<PatientDetailPage>
         onSave: () {
           _loadPatientData(); // Reload reminders
         },
-      ),
-    );
-  }
-
-  void _showComingSoon(String feature) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$feature feature coming soon!'),
-        backgroundColor: const Color(0xFF8FA9C9),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
       ),
     );
   }
