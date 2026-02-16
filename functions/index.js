@@ -14,7 +14,9 @@ function formatTime(timestamp) {
         timeZone: 'America/New_York'
     };
 
-    return date.toLocaleString('en-US', options);
+    // Use Intl.DateTimeFormat for reliable timezone conversion
+    const formatter = new Intl.DateTimeFormat('en-US', options);
+    return formatter.format(date);
 }
 
 // This function runs every 1 minute to check for due reminders
@@ -36,11 +38,12 @@ exports.sendScheduledReminders = onSchedule('every 1 minutes', async (event) => 
             const reminder = doc.data();
             // Only send if notification hasn't been sent yet
             if (!reminder.notificationSent) {
-                promises.push(sendReminderNotification(db, doc.id, reminder, false));
+                const isSnoozed = reminder.isSnoozed === true;
+                promises.push(sendReminderNotification(db, doc.id, reminder, isSnoozed));
             }
         });
 
-        // Check snoozed reminders
+        // Check snoozed reminders (old collection - for backwards compatibility)
         const snoozedSnapshot = await db.collection('snoozed_reminders')
             .where('time', '<=', now)
             .where('completed', '==', false)
@@ -85,19 +88,33 @@ async function sendReminderNotification(db, docId, reminder, isSnoozed) {
             return null;
         }
 
-        // For snoozed reminders, use the ORIGINAL time for display
-        const displayTime = isSnoozed && reminder.originalTime
-            ? reminder.originalTime
-            : reminder.time;
+        // For snoozed reminders, use the stored originalTimeText if available
+        // This avoids timezone conversion issues since it's pre-formatted
+        let timeStr;
+        if (isSnoozed && reminder.originalTimeText) {
+            // Use the pre-formatted time string from Flutter app
+            timeStr = reminder.originalTimeText;
+        } else if (isSnoozed && reminder.originalTime) {
+            // Fallback: format the original time if originalTimeText not available
+            timeStr = formatTime(reminder.originalTime);
+        } else {
+            // For regular reminders, format the time
+            timeStr = formatTime(reminder.time);
+        }
 
-        const timeStr = formatTime(displayTime);
         const description = reminder.description || '';
-        const formattedBody = `Scheduled for ${timeStr}:\n${description}`;
+        const snoozeSuffix = isSnoozed ? ' (Snoozed)' : '';
+        const formattedBody = `Scheduled for ${timeStr}${snoozeSuffix}${description ? ':\n' + description : ''}`;
 
-        // For snoozed reminders, use the ORIGINAL reminder ID
+        // For snoozed reminders, use the ORIGINAL reminder ID if available
         const reminderIdToUse = isSnoozed && reminder.originalReminderId
             ? reminder.originalReminderId
             : docId;
+
+        // Determine which timestamp to use for the data payload
+        const displayTime = isSnoozed && reminder.originalTime
+            ? reminder.originalTime
+            : reminder.time;
 
         // Send the notification
         await admin.messaging().send({
@@ -111,7 +128,11 @@ async function sendReminderNotification(db, docId, reminder, isSnoozed) {
                 title: reminder.title || '',
                 description: reminder.description || '',
                 timestamp: displayTime.toMillis().toString(),
-                time: timeStr
+                time: timeStr,
+                isSnooze: isSnoozed ? 'true' : 'false',
+                originalBodyText: isSnoozed && reminder.originalTimeText
+                    ? `Scheduled for ${reminder.originalTimeText}${description ? ':\n' + description : ''}`
+                    : ''
             },
             android: {
                 priority: 'high',
@@ -124,9 +145,19 @@ async function sendReminderNotification(db, docId, reminder, isSnoozed) {
 
         // Handle post-notification cleanup
         if (isSnoozed) {
-            // Delete snoozed reminder after sending (it's temporary)
-            await db.collection('snoozed_reminders').doc(docId).delete();
-            console.log(`Deleted snoozed reminder ${docId}`);
+            // Check if this is from the old snoozed_reminders collection
+            const snoozedDoc = await db.collection('snoozed_reminders').doc(docId).get();
+            if (snoozedDoc.exists) {
+                // Delete snoozed reminder after sending (it's temporary)
+                await db.collection('snoozed_reminders').doc(docId).delete();
+                console.log(`Deleted snoozed reminder from old collection ${docId}`);
+            } else {
+                // It's in the regular reminders collection
+                await db.collection('reminders').doc(docId).update({
+                    notificationSent: true
+                });
+                console.log(`Marked snoozed reminder ${docId} as sent`);
+            }
         } else {
             // For regular reminders, add a 'notificationSent' flag to prevent duplicate sends
             // but DON'T mark as completed - let the user do that

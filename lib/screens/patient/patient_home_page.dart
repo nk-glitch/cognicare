@@ -119,8 +119,17 @@ class _PatientHomePageState extends State<PatientHomePage>
         // Check if reminder is due (within 1 minute of scheduled time)
         final difference = now.difference(time);
         if (difference.inSeconds >= 0 && difference.inSeconds < 60) {
-          // Format time
-          final timeStr = DateFormat('h:mm a').format(time);
+          // Check if this is a snoozed reminder
+          final isSnoozed = reminder['isSnoozed'] == true;
+
+          String timeStr;
+          if (isSnoozed && reminder['originalTimeText'] != null) {
+            // Use the stored original time text for snoozed reminders
+            timeStr = reminder['originalTimeText'] as String;
+          } else {
+            // Format time to LOCAL timezone for regular reminders
+            timeStr = DateFormat('h:mm a').format(time.toLocal());
+          }
 
           // Show dialog
           _showReminderDialog({
@@ -129,6 +138,7 @@ class _PatientHomePageState extends State<PatientHomePage>
             'description': reminder['description'] ?? '',
             'time': timeStr,
             'timestamp': time.millisecondsSinceEpoch,
+            'isSnooze': isSnoozed,
           });
 
           // Only show one at a time
@@ -180,7 +190,18 @@ class _PatientHomePageState extends State<PatientHomePage>
         if (timeValue == null) return;
 
         final time = (timeValue as Timestamp).toDate();
-        final timeStr = DateFormat('h:mm a').format(time);
+
+        // Check if this is a snoozed reminder
+        final isSnoozed = reminder['isSnoozed'] == true;
+
+        String timeStr;
+        if (isSnoozed && reminder['originalTimeText'] != null) {
+          // Use the stored original time text for snoozed reminders
+          timeStr = reminder['originalTimeText'] as String;
+        } else {
+          // Format time to LOCAL timezone for regular reminders
+          timeStr = DateFormat('h:mm a').format(time.toLocal());
+        }
 
         // Show dialog
         _showReminderDialog({
@@ -189,6 +210,7 @@ class _PatientHomePageState extends State<PatientHomePage>
           'description': reminder['description'] ?? '',
           'time': timeStr,
           'timestamp': time.millisecondsSinceEpoch,
+          'isSnooze': isSnoozed,
         });
       }
     } catch (e) {
@@ -1036,6 +1058,23 @@ class ReminderDialog extends StatelessWidget {
 
       print('Marked original reminder $reminderId as complete');
 
+      // Get the original timestamp and format it to LOCAL time
+      DateTime originalScheduledTime;
+      if (timestamp != null) {
+        final timestampInt = timestamp is int ? timestamp : int.tryParse(timestamp.toString());
+        originalScheduledTime = DateTime.fromMillisecondsSinceEpoch(timestampInt ?? 0);
+      } else {
+        final timeValue = reminderData['time'];
+        originalScheduledTime = (timeValue as Timestamp).toDate();
+      }
+
+      // Format the time to LOCAL timezone
+      final originalFormattedTime = DateFormat('h:mm a').format(originalScheduledTime.toLocal());
+
+      // Create the body text with the formatted time
+      final description = reminderData['description'] ?? '';
+      final originalBodyText = 'Scheduled for $originalFormattedTime${description.isNotEmpty ? ':\n$description' : ''}';
+
       // Create a COMPLETELY NEW reminder 5 minutes from now
       final newTime = DateTime.now().add(const Duration(minutes: 5));
 
@@ -1045,6 +1084,7 @@ class ReminderDialog extends StatelessWidget {
         'title': reminderData['title'],
         'description': reminderData['description'],
         'time': Timestamp.fromDate(newTime),
+        'originalTimeText': originalFormattedTime,  // Store the formatted time!
         'completed': false,
         'isSnoozed': true,
         'createdAt': FieldValue.serverTimestamp(),
@@ -1056,13 +1096,14 @@ class ReminderDialog extends StatelessWidget {
       await NotificationService.scheduleLocalNotification(
         id: docRef.id.hashCode,
         title: reminderData['title'] ?? 'Reminder',
-        body: '${reminderData['description'] ?? ''} (Snoozed)',
+        body: '$originalBodyText (Snoozed)',  // Use the formatted body text
         scheduledTime: newTime,
         payload: {
           'reminderId': docRef.id,
           'title': reminderData['title'] ?? 'Reminder',
           'description': reminderData['description'] ?? '',
           'timestamp': newTime.millisecondsSinceEpoch,
+          'originalBodyText': originalBodyText,  // Store the formatted body text in payload
           'isSnooze': true,
         },
       );

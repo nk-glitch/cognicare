@@ -207,32 +207,48 @@ class NotificationService {
 
       String formattedBody = notification.body ?? '';
 
-      if (data['timestamp'] != null) {
-        try {
-          // Handle both int and string timestamp
-          final timestampValue = data['timestamp'];
-          final timestampInt = timestampValue is int
-              ? timestampValue
-              : int.tryParse(timestampValue.toString());
+      // Check if this is a snoozed notification
+      final isSnooze = data['isSnooze'] == true || data['isSnooze'] == 'true';
 
-          if (timestampInt != null) {
-            // Convert UTC timestamp directly to Eastern Time
-            final easternTime = tz.getLocation('America/New_York');
-            final tzScheduledTime = tz.TZDateTime.fromMillisecondsSinceEpoch(easternTime, timestampInt);
-            scheduledTime = tzScheduledTime;
+      // Check if there's a stored body text (for snoozed reminders)
+      if (isSnooze && data['originalBodyText'] != null) {
+        // Use the stored body text and add (Snoozed) suffix
+        formattedBody = '${data['originalBodyText']} (Snoozed)';
+      } else {
+        // Format the body text from timestamp (for regular reminders)
+        final timestampToDisplay = isSnooze && data['originalTimestamp'] != null
+            ? data['originalTimestamp']
+            : data['timestamp'];
 
-            final timeStr = DateFormat('h:mm a').format(tzScheduledTime);
+        if (timestampToDisplay != null) {
+          try {
+            // Handle both int and string timestamp
+            final timestampValue = timestampToDisplay;
+            final timestampInt = timestampValue is int
+                ? timestampValue
+                : int.tryParse(timestampValue.toString());
 
-            data['time'] = timeStr;
-            final description = data['description'] ?? '';
-            formattedBody = 'Scheduled for $timeStr${description.isNotEmpty ? ':\n$description' : ''}';
+            if (timestampInt != null) {
+              // Convert UTC timestamp directly to Eastern Time
+              final easternTime = tz.getLocation('America/New_York');
+              final tzScheduledTime = tz.TZDateTime.fromMillisecondsSinceEpoch(easternTime, timestampInt);
+              scheduledTime = tzScheduledTime;
+
+              final timeStr = DateFormat('h:mm a').format(tzScheduledTime);
+
+              data['time'] = timeStr;
+              final description = data['description'] ?? '';
+
+              // Add (Snoozed) suffix if it's a snoozed notification
+              final snoozeSuffix = isSnooze ? ' (Snoozed)' : '';
+              formattedBody = 'Scheduled for $timeStr$snoozeSuffix${description.isNotEmpty ? ':\n$description' : ''}';
+            }
+          } catch (e) {
+            print('Error formatting notification body: $e');
           }
-        } catch (e) {
-          print('Error formatting notification body: $e');
         }
       }
 
-      final isSnooze = data['isSnooze'] == true || data['isSnooze'] == 'true';
       final compositeKey = _createCompositeKey(reminderId, scheduledTime, isSnooze: isSnooze);
 
       // Check if we should show this notification
@@ -353,25 +369,29 @@ class NotificationService {
     required String title,
     required String body,
     required String reminderId,
+    required DateTime originalScheduledTime,
     Map<String, dynamic>? additionalPayload,
   }) async {
     try {
-      final snoozeTime = DateTime.now().add(const Duration(minutes: 5));
+      final snoozeTime = tz.TZDateTime.now(tz.local)
+          .add(const Duration(minutes: 5));
 
-      // Create payload with snooze flag and timestamp
+      // Create payload with BOTH times
       final payload = {
         'reminderId': reminderId,
-        'timestamp': snoozeTime.millisecondsSinceEpoch,
+        'timestamp': snoozeTime.millisecondsSinceEpoch,  // When to fire the notification
+        'originalTimestamp': originalScheduledTime.millisecondsSinceEpoch,  // Original scheduled time to DISPLAY
         'isSnooze': true,
         ...?additionalPayload,
       };
 
       print('Scheduling snooze notification #$id for $snoozeTime (5 minutes from now)');
+      print('Original time was: $originalScheduledTime');
 
       await scheduleLocalNotification(
         id: id,
         title: title,
-        body: '$body (Snoozed)',
+        body: body,
         scheduledTime: snoozeTime,
         payload: payload,
       );
