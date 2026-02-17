@@ -178,7 +178,6 @@ class _PatientDetailPageState extends State<PatientDetailPage>
   }
 
   Widget _buildPatientInfoCard() {
-    final location = _patientData?['address'] ?? 'No location set';
     final todaysReminders = _reminders.where((reminder) {
       final reminderDate = (reminder['time'] as Timestamp?)?.toDate();
       final today = DateTime.now();
@@ -236,58 +235,87 @@ class _PatientDetailPageState extends State<PatientDetailPage>
           ),
           Container(
             margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              color: const Color(0xFFD4ADB1),
-              borderRadius: BorderRadius.circular(16),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  const Color(0xFFD4ADB1),
+                  const Color(0xFFD4ADB1).withOpacity(0.9),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(20),
               border: Border.all(
                 color: const Color(0xFFC09499),
                 width: 2,
               ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Patient: ${widget.patientName}',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF3D2C31),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Current location: $location',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: Color(0xFF5A4046),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  "Today's Reminders:",
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF3D2C31),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                if (todaysReminders.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 8),
-                    child: Text(
-                      'No reminders for today',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Color(0xFF7A6A70),
-                        fontStyle: FontStyle.italic,
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.5),
+                        borderRadius: BorderRadius.circular(10),
                       ),
+                      child: const Icon(
+                        Icons.notifications_active,
+                        color: Color(0xFF8FA9C9),
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    const Text(
+                      "Today's Reminders",
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF3D2C31),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                if (todaysReminders.isEmpty)
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.check_circle_outline,
+                          color: const Color(0xFF7A6A70).withOpacity(0.6),
+                          size: 20,
+                        ),
+                        const SizedBox(width: 12),
+                        const Text(
+                          'No reminders for today',
+                          style: TextStyle(
+                            fontSize: 15,
+                            color: Color(0xFF7A6A70),
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ],
                     ),
                   )
                 else
-                  ...todaysReminders.map((reminder) {
+                  ...todaysReminders.asMap().entries.map((entry) {
+                    final reminder = entry.value;
                     final time = (reminder['time'] as Timestamp?)?.toDate();
                     final timeStr = time != null
                         ? DateFormat('h:mm a').format(time)
@@ -295,42 +323,83 @@ class _PatientDetailPageState extends State<PatientDetailPage>
                     final description = reminder['description'] as String? ?? '';
 
                     return Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text('• ', style: TextStyle(fontSize: 16)),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      '${reminder['title']} ${timeStr.isNotEmpty ? 'at $timeStr' : ''}',
-                                      style: const TextStyle(
-                                        fontSize: 14,
-                                        color: Color(0xFF3D2C31),
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    if (description.isNotEmpty) ...[
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        description,
-                                        style: const TextStyle(
-                                          fontSize: 13,
-                                          color: Color(0xFF5A4046),
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.4),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.6),
+                            width: 1.5,
+                          ),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              margin: const EdgeInsets.only(top: 2),
+                              width: 8,
+                              height: 8,
+                              decoration: const BoxDecoration(
+                                color: Color(0xFF8FA9C9),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          reminder['title'] ?? 'Untitled',
+                                          style: const TextStyle(
+                                            fontSize: 16,
+                                            color: Color(0xFF3D2C31),
+                                            fontWeight: FontWeight.bold,
+                                          ),
                                         ),
                                       ),
+                                      if (timeStr.isNotEmpty)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 4,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFF8FA9C9).withOpacity(0.3),
+                                            borderRadius: BorderRadius.circular(8),
+                                          ),
+                                          child: Text(
+                                            timeStr,
+                                            style: const TextStyle(
+                                              fontSize: 13,
+                                              color: Color(0xFF3D2C31),
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ),
                                     ],
+                                  ),
+                                  if (description.isNotEmpty) ...[
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      description,
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        color: Color(0xFF5A4046),
+                                        height: 1.4,
+                                      ),
+                                    ),
                                   ],
-                                ),
+                                ],
                               ),
-                            ],
-                          ),
-                        ],
+                            ),
+                          ],
+                        ),
                       ),
                     );
                   }),
@@ -341,22 +410,25 @@ class _PatientDetailPageState extends State<PatientDetailPage>
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
             child: SizedBox(
               width: double.infinity,
-              child: ElevatedButton(
+              child: ElevatedButton.icon(
                 onPressed: _showReminderPopup,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFD4ADB1),
-                  foregroundColor: const Color(0xFF3D2C31),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  backgroundColor: const Color(0xFF8FA9C9),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(16),
                   ),
-                  elevation: 2,
+                  elevation: 3,
+                  shadowColor: const Color(0xFF8FA9C9).withOpacity(0.4),
                 ),
-                child: const Text(
-                  'Add Reminder',
+                icon: const Icon(Icons.add_circle_outline, size: 22),
+                label: const Text(
+                  'Add New Reminder',
                   style: TextStyle(
                     fontSize: 16,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.5,
                   ),
                 ),
               ),

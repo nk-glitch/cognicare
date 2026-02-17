@@ -31,7 +31,6 @@ class _PatientHomePageState extends State<PatientHomePage>
   StreamSubscription<QuerySnapshot>? _snoozedReminderSubscription;
 
   String patientName = "Loading...";
-  String currentActivity = "No activity scheduled";
   List<Map<String, dynamic>> reminders = [];
   bool _isLoading = true;
   bool _isSharingLocation = false;
@@ -401,14 +400,6 @@ class _PatientHomePageState extends State<PatientHomePage>
               .map((doc) => {'id': doc.id, ...doc.data()})
               .where((reminder) => reminder['isSnoozed'] != true) // Exclude snoozed reminders
               .toList();
-
-          // Set current activity to the next upcoming reminder
-          if (reminders.isNotEmpty) {
-            final nextReminder = reminders.first;
-            final time = (nextReminder['time'] as Timestamp?)?.toDate();
-            final timeStr = time != null ? DateFormat('h:mm a').format(time) : '';
-            currentActivity = '${nextReminder['title']} at $timeStr';
-          }
         });
       }
     } catch (e) {
@@ -811,6 +802,17 @@ class _PatientHomePageState extends State<PatientHomePage>
   }
 
   Widget _buildActivityCard() {
+    // Find the most recent non-snoozed reminder
+    String displayText = 'No recent reminders';
+
+    if (reminders.isNotEmpty) {
+      // Get the most recent reminder (first one since they're ordered by time)
+      final recentReminder = reminders.first;
+      final time = (recentReminder['time'] as Timestamp?)?.toDate();
+      final timeStr = time != null ? DateFormat('h:mm a').format(time) : '';
+      displayText = '${recentReminder['title']} at $timeStr';
+    }
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
@@ -830,7 +832,7 @@ class _PatientHomePageState extends State<PatientHomePage>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'What you are supposed to be doing',
+            'Most Recent Reminder',
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
@@ -846,7 +848,7 @@ class _PatientHomePageState extends State<PatientHomePage>
               borderRadius: BorderRadius.circular(12),
             ),
             child: Text(
-              currentActivity,
+              displayText,
               style: const TextStyle(
                 fontSize: 18,
                 color: Color(0xFF3D2C31),
