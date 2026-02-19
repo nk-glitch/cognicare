@@ -31,6 +31,7 @@ class CogniCareApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       title: 'CogniCare',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
@@ -39,10 +40,21 @@ class CogniCareApp extends StatelessWidget {
         ),
         useMaterial3: true,
         textTheme: const TextTheme(
-          headlineLarge: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
-          headlineMedium: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-          bodyLarge: TextStyle(fontSize: 20),
-          bodyMedium: TextStyle(fontSize: 18),
+          displayLarge: TextStyle(decoration: TextDecoration.none),
+          displayMedium: TextStyle(decoration: TextDecoration.none),
+          displaySmall: TextStyle(decoration: TextDecoration.none),
+          headlineLarge: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, decoration: TextDecoration.none),
+          headlineMedium: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, decoration: TextDecoration.none),
+          headlineSmall: TextStyle(decoration: TextDecoration.none),
+          titleLarge: TextStyle(decoration: TextDecoration.none),
+          titleMedium: TextStyle(decoration: TextDecoration.none),
+          titleSmall: TextStyle(decoration: TextDecoration.none),
+          bodyLarge: TextStyle(fontSize: 20, decoration: TextDecoration.none),
+          bodyMedium: TextStyle(fontSize: 18, decoration: TextDecoration.none),
+          bodySmall: TextStyle(decoration: TextDecoration.none),
+          labelLarge: TextStyle(decoration: TextDecoration.none),
+          labelMedium: TextStyle(decoration: TextDecoration.none),
+          labelSmall: TextStyle(decoration: TextDecoration.none),
         ),
       ),
       home: const AuthWrapper(),
