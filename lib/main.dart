@@ -1,27 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_core/firebase_core.dart';
+import './services/auth_service.dart';
+import './screens/auth/login_page.dart';
+import './screens/patient/patient_home_page.dart';
+import './screens/caretaker/caretaker_home_page.dart';
+import './screens/auth/account_setup_page.dart';
 import 'firebase_options.dart';
-import 'package:cognicare/services/auth_service.dart';
-import 'package:cognicare/screens/auth/login_page.dart';
-import 'package:cognicare/screens/auth/account_setup_page.dart';
-import 'package:cognicare/screens/patient/patient_home_page.dart';
-import 'package:cognicare/screens/caretaker/caretaker_home_page.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
-import 'services/notification_service.dart';
+import 'package:firebase_core/firebase_core.dart';
+
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-
-  // Set up background message handler
-  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-
-  // Initialize notifications
-  await NotificationService.initialize();
-
   runApp(const CogniCareApp());
 }
 
@@ -73,10 +64,6 @@ class _AuthWrapperState extends State<AuthWrapper> {
     });
   }
 
-  Future<void> _setupPatientNotifications() async {
-    await NotificationService.saveFCMToken();
-  }
-
   @override
   Widget build(BuildContext context) {
     // Show loading until we've started the auth check
@@ -110,14 +97,6 @@ class _AuthWrapperState extends State<AuthWrapper> {
         final userType = authStatus['userType'];
         final setupComplete = authStatus['setupComplete'];
         final uid = authStatus['uid'];
-
-        // Save FCM token for patients when they're logged in
-        if (userType == 'patient') {
-          // Call after build completes
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            _setupPatientNotifications();
-          });
-        }
 
         if (userType == 'patient') {
           if (setupComplete) {

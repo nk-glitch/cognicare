@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'location_map_page.dart';
 import 'calendar_page.dart';
+import '../profile_page.dart';
 
 class PatientDetailPage extends StatefulWidget {
   final String patientId;
@@ -624,7 +625,12 @@ class _PatientDetailPageState extends State<PatientDetailPage>
         );
         break;
       case 3:
-        Navigator.pop(context);
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => const ProfilePage(isCaretaker: true),
+          ),
+        );
         break;
     }
   }
