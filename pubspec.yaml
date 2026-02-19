@@ -5,19 +5,21 @@ publish_to: "none"
 version: 1.0.0+1
 
 environment:
-  sdk: ^3.0.0
+  sdk: ">=3.0.0 <4.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
 
-  # Firebase
+  table_calendar: ^3.0.9
+
+  # Firebase - Updated versions
   firebase_core: ^4.4.0
   firebase_auth: ^6.1.4
   cloud_firestore: ^6.1.2
   firebase_messaging: ^16.1.1
 
-  # Local notifications
+  # Local notifications - Updated version
   flutter_local_notifications: ^20.0.0
 
   # Location
@@ -27,17 +29,20 @@ dependencies:
   latlong2: ^0.9.0
   permission_handler: ^11.0.1
 
+
   # State management & storage
   provider: ^6.1.1
   shared_preferences: ^2.3.5
 
-  # UI
+  # UI - Updated versions
   cupertino_icons: ^1.0.8
   intl: ^0.20.2
 
-  # Phone calling
+  #PHONE calling
   url_launcher: ^6.2.1
 
+  # Timezone
+  timezone: ^0.10.0
 
 dev_dependencies:
   flutter_test:

@@ -116,6 +116,7 @@ class _CaretakerHomePageState extends State<CaretakerHomePage>
               .get();
 
           final remindersList = remindersSnapshot.docs
+              .where((doc) => doc.data()['isSnoozed'] != true) // Filter out snoozed reminders
               .map((doc) => doc.data()['title'] as String)
               .toList();
 

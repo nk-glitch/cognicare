@@ -67,29 +67,32 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _loadNotifications(String userId) async {
     try {
-      // Load patient-caretaker relationship requests
+      // Only patients receive connection requests (caretakers send them; patients accept)
+      if (widget.isCaretaker) {
+        setState(() => notifications = []);
+        return;
+      }
+
       final snapshot = await _firestore
           .collection('patient_caretaker_relationships')
-          .where(widget.isCaretaker ? 'caretakerId' : 'patientId', isEqualTo: userId)
+          .where('patientId', isEqualTo: userId)
           .where('status', isEqualTo: 'pending')
           .get();
 
       List<NotificationItem> newNotifications = [];
       for (var doc in snapshot.docs) {
         final data = doc.data();
-        final otherUserId = widget.isCaretaker
-            ? data['patientId']
-            : data['caretakerId'];
+        final caretakerId = data['caretakerId'];
 
-        final otherUserData = await _authService.getUserData(otherUserId);
+        final otherUserData = await _authService.getUserData(caretakerId);
         if (otherUserData != null) {
           final otherUserName = '${otherUserData['firstName']} ${otherUserData['lastName']}';
 
           newNotifications.add(NotificationItem.connectionRequest(
             fromName: otherUserName,
-            isCaretaker: widget.isCaretaker,
+            isCaretaker: false,
             requestId: doc.id,
-            fromUserId: otherUserId,
+            fromUserId: caretakerId,
             timestamp: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
           ));
         }
