@@ -6,9 +6,25 @@ import 'dart:async';
 import 'dart:math';
 import '../../services/notification_service.dart';
 
+// ─── Design tokens ─────────────────────────────────────────────────────────────
+const _kBg        = Color(0xFFF9EDE8);
+const _kCard      = Color(0xFFEDD5D0);
+const _kDivider   = Color(0xFFD9B8B4);
+const _kEmergency = Color(0xFFE8736C);
+const _kAction    = Color(0xFF8FA9C9);
+const _kTextDark  = Color(0xFF3D2C31);
+const _kTextMid   = Color(0xFF7A5A5A);
+const _kTextMuted = Color(0xFFA08080);
+
+// Base style — suppresses watch spell-check squiggles on every Text
+const _kBase = TextStyle(
+  decoration: TextDecoration.none,
+  decorationColor: Colors.transparent,
+  fontFamily: 'sans-serif',
+);
+
 class WatchPatientScreen extends StatefulWidget {
   final String patientId;
-
   const WatchPatientScreen({super.key, required this.patientId});
 
   @override
@@ -18,139 +34,133 @@ class WatchPatientScreen extends StatefulWidget {
 class _WatchPatientScreenState extends State<WatchPatientScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  // Scroll controller drives the collapsing header
+  final ScrollController _scrollCtrl = ScrollController();
+
   List<Map<String, dynamic>> _reminders = [];
-  bool _isLoading = true;
+  bool _isLoading    = true;
   bool _isRefreshing = false;
   bool _refreshExploded = false;
+
   Timer? _checkTimer;
-  StreamSubscription<QuerySnapshot>? _reminderSubscription;
+  StreamSubscription<QuerySnapshot>? _reminderSub;
   final Set<String> _shownDialogs = {};
-  String _patientName = '';
+
+  String _firstName = '';
+
+  // Header collapses over the first 36 px of scroll
+  static const double _headerMax  = 36.0;
+  static const double _headerMin  = 0.0;
+  double get _scrollOffset =>
+      _scrollCtrl.hasClients ? _scrollCtrl.offset.clamp(0.0, _headerMax) : 0.0;
+  double get _headerHeight =>
+      (_headerMax - _scrollOffset).clamp(_headerMin, _headerMax);
+  double get _headerOpacity =>
+      (1.0 - _scrollOffset / _headerMax).clamp(0.0, 1.0);
 
   @override
   void initState() {
     super.initState();
-    _loadReminders();
+    _scrollCtrl.addListener(() => setState(() {}));
     _loadPatientName();
-    _setupReminderListener();
-
-    _checkTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (mounted) _checkForDueReminders();
-    });
-
-    NotificationService.onNotificationTap = (data) {
-      _showWatchReminderDialog(data);
-    };
+    _loadReminders();
+    _setupListener();
+    _checkTimer = Timer.periodic(
+        const Duration(seconds: 30), (_) { if (mounted) _checkDue(); });
+    NotificationService.onNotificationTap = _showReminderDialog;
   }
 
   @override
   void dispose() {
+    _scrollCtrl.dispose();
     _checkTimer?.cancel();
-    _reminderSubscription?.cancel();
+    _reminderSub?.cancel();
     super.dispose();
+  }
+
+  // ── Data ────────────────────────────────────────────────────────────────────
+
+  Future<void> _loadPatientName() async {
+    try {
+      final doc =
+      await _firestore.collection('users').doc(widget.patientId).get();
+      if (!doc.exists || !mounted) return;
+      final d    = doc.data()!;
+      final full =
+      '${d['firstName'] ?? ''} ${d['lastName'] ?? ''}'.trim();
+      setState(() => _firstName = full.split(' ').first);
+    } catch (e) { debugPrint('loadName: $e'); }
   }
 
   Future<void> _loadReminders() async {
     final now = DateTime.now();
-    final startOfDay = DateTime(now.year, now.month, now.day);
-    final endOfDay = DateTime(now.year, now.month, now.day, 23, 59, 59);
-
     try {
-      final snapshot = await _firestore
+      final snap = await _firestore
           .collection('reminders')
           .where('patientId', isEqualTo: widget.patientId)
           .where('completed', isEqualTo: false)
-          .where('time', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
-          .where('time', isLessThanOrEqualTo: Timestamp.fromDate(endOfDay))
+          .where('time', isGreaterThanOrEqualTo:
+      Timestamp.fromDate(DateTime(now.year, now.month, now.day)))
+          .where('time', isLessThanOrEqualTo:
+      Timestamp.fromDate(
+          DateTime(now.year, now.month, now.day, 23, 59, 59)))
           .orderBy('time')
           .get();
-
       if (mounted) {
         setState(() {
-          _reminders = snapshot.docs
-              .map((doc) => {'id': doc.id, ...doc.data()})
-              .toList();
+          _reminders =
+              snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
           _isLoading = false;
         });
       }
     } catch (e) {
-      debugPrint('WatchPatientScreen _loadReminders error: $e');
+      debugPrint('loadReminders: $e');
       if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _loadPatientName() async {
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(widget.patientId)
-          .get();
-      if (doc.exists && mounted) {
-        final data = doc.data();
-        setState(() {
-          _patientName =
-              '${data?['firstName'] ?? ''} ${data?['lastName'] ?? ''}'.trim();
-        });
-      }
-    } catch (e) {
-      debugPrint('Could not load patient name: $e');
     }
   }
 
   Future<void> _handleRefresh() async {
     if (_isRefreshing) return;
-    _dragStartY = null;
-    setState(() {
-      _isRefreshing = true;
-      _refreshExploded = false;
-    });
+    setState(() { _isRefreshing = true; _refreshExploded = false; });
     await _loadReminders();
-    await _checkForDueReminders();
+    await _checkDue();
     if (mounted) setState(() => _refreshExploded = true);
     await Future.delayed(const Duration(milliseconds: 900));
     if (mounted) setState(() => _isRefreshing = false);
   }
 
-  void _setupReminderListener() {
-    _reminderSubscription = _firestore
+  void _setupListener() {
+    _reminderSub = _firestore
         .collection('reminders')
         .where('patientId', isEqualTo: widget.patientId)
         .where('completed', isEqualTo: false)
         .snapshots()
-        .listen((snapshot) {
+        .listen((snap) {
       if (!mounted) return;
-
       final now = DateTime.now();
-      for (var doc in snapshot.docs) {
-        final reminder = doc.data();
-        final timeValue = reminder['time'];
-        if (timeValue == null) continue;
-
-        final time = (timeValue as Timestamp).toDate();
-        final diff = now.difference(time);
-
-        if (reminder['acknowledgedEarly'] == true) continue;
-
+      for (final doc in snap.docs) {
+        final r  = doc.data();
+        final tv = r['time'];
+        if (tv == null || r['acknowledgedEarly'] == true) continue;
+        final t    = (tv as Timestamp).toDate();
+        final diff = now.difference(t);
         if (diff.inSeconds >= 0 && diff.inSeconds < 60) {
-          final timeStr = DateFormat('h:mm a').format(time.toLocal());
-          _showWatchReminderDialog({
+          _showReminderDialog({
             'reminderId': doc.id,
-            'title': reminder['title'] ?? 'Reminder',
-            'description': reminder['description'] ?? '',
-            'time': timeStr,
-            'timestamp': time.millisecondsSinceEpoch,
+            'title': r['title'] ?? 'Reminder',
+            'time': DateFormat('h:mm a').format(t.toLocal()),
+            'timestamp': t.millisecondsSinceEpoch,
           });
           break;
         }
       }
-
       _loadReminders();
-    }, onError: (e) => debugPrint('Reminder listener error: $e'));
+    }, onError: (e) => debugPrint('listener: $e'));
   }
 
-  Future<void> _checkForDueReminders() async {
+  Future<void> _checkDue() async {
     try {
-      final snapshot = await _firestore
+      final snap = await _firestore
           .collection('reminders')
           .where('patientId', isEqualTo: widget.patientId)
           .where('completed', isEqualTo: false)
@@ -158,256 +168,258 @@ class _WatchPatientScreenState extends State<WatchPatientScreen> {
           .orderBy('time')
           .limit(1)
           .get();
-
-      if (snapshot.docs.isNotEmpty) {
-        final doc = snapshot.docs.first;
-        final reminder = doc.data();
-        final timeValue = reminder['time'];
-        if (timeValue == null) return;
-
-        final time = (timeValue as Timestamp).toDate();
-        final timeStr = DateFormat('h:mm a').format(time.toLocal());
-
-        if (reminder['acknowledgedEarly'] == true) return;
-
-        _showWatchReminderDialog({
-          'reminderId': doc.id,
-          'title': reminder['title'] ?? 'Reminder',
-          'description': reminder['description'] ?? '',
-          'time': timeStr,
-          'timestamp': time.millisecondsSinceEpoch,
-        });
-      }
-    } catch (e) {
-      debugPrint('WatchPatientScreen _checkForDueReminders error: $e');
-    }
+      if (snap.docs.isEmpty) return;
+      final doc = snap.docs.first;
+      final r   = doc.data();
+      final tv  = r['time'];
+      if (tv == null || r['acknowledgedEarly'] == true) return;
+      final t = (tv as Timestamp).toDate();
+      _showReminderDialog({
+        'reminderId': doc.id,
+        'title': r['title'] ?? 'Reminder',
+        'time': DateFormat('h:mm a').format(t.toLocal()),
+        'timestamp': t.millisecondsSinceEpoch,
+      });
+    } catch (e) { debugPrint('checkDue: $e'); }
   }
 
-  void _showWatchReminderDialog(Map<String, dynamic> data) {
+  void _showReminderDialog(Map<String, dynamic> data) {
     if (!mounted) return;
-    final reminderId = data['reminderId'] ?? '';
-    if (reminderId.isEmpty || _shownDialogs.contains(reminderId)) return;
-
-    _shownDialogs.add(reminderId);
+    final id = data['reminderId'] ?? '';
+    if (id.isEmpty || _shownDialogs.contains(id)) return;
+    _shownDialogs.add(id);
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (_) => WatchReminderDialog(
         title: data['title'] ?? 'Reminder',
         time: data['time'] ?? '',
-        reminderId: reminderId,
+        reminderId: id,
         timestamp: data['timestamp'],
       ),
-    ).then((_) {
-      _shownDialogs.remove(reminderId);
-      _loadReminders();
-    });
+    ).then((_) { _shownDialogs.remove(id); _loadReminders(); });
   }
+
+  // ── Build ───────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     return WatchShape(
-      builder: (context, shape, _) {
-        return AmbientMode(
-          builder: (context, mode, _) {
-            if (mode == WearMode.ambient) return _buildAmbientScreen();
-            return _buildActiveScreen();
-          },
-        );
-      },
+      builder: (_, shape, __) => AmbientMode(
+        builder: (_, mode, __) =>
+        mode == WearMode.ambient ? _buildAmbient() : _buildActive(),
+      ),
     );
   }
 
-  Widget _buildAmbientScreen() {
-    final nextReminder = _reminders.isNotEmpty ? _reminders.first : null;
-    final time = nextReminder != null
-        ? DateFormat('h:mm a')
-        .format((nextReminder['time'] as Timestamp).toDate())
-        : null;
-
+  Widget _buildAmbient() {
     return Scaffold(
       backgroundColor: Colors.black,
       body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Text('CogniCare',
-                style: TextStyle(color: Colors.white, fontSize: 12)),
-            if (time != null) ...[
-              const SizedBox(height: 4),
-              Text('Next: $time',
-                  style: const TextStyle(color: Colors.grey, fontSize: 10)),
-            ]
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('CogniCare',
+              style: _kBase.copyWith(
+                  color: _kAction, fontSize: 10, letterSpacing: 2)),
+          if (_reminders.isNotEmpty) ...[
+            const SizedBox(height: 5),
+            Text(
+              DateFormat('h:mm a').format(
+                  (_reminders.first['time'] as Timestamp).toDate()),
+              style: _kBase.copyWith(color: Colors.white, fontSize: 17),
+            ),
           ],
-        ),
+        ]),
       ),
     );
   }
 
-  double? _dragStartY;
+  Widget _buildActive() {
+    return ClipOval(
+      child: Container(
+        color: _kBg,
+        child: LayoutBuilder(builder: (ctx, bc) {
+          // Safe inset: distance from circle edge to inscribed square corner
+          final r   = bc.maxWidth / 2;
+          final ins = r * (1 - 1 / sqrt2) + 6;
 
-  Widget _buildActiveScreen() {
-    return Listener(
-      behavior: HitTestBehavior.translucent,
-      onPointerDown: (e) => _dragStartY = e.position.dy,
-      onPointerUp: (e) {
-        if (_dragStartY != null) {
-          final delta = e.position.dy - _dragStartY!;
-          if (delta > 40) _handleRefresh();
-          _dragStartY = null;
-        }
-      },
-      onPointerCancel: (_) => _dragStartY = null,
-      child: ClipOval(
-        child: ColoredBox(
-          color: const Color(0xFFF5E6D3),
-          child: SafeArea(
+          return SafeArea(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(22, 14, 22, 14),
-              child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _buildContent(),
+              padding: EdgeInsets.all(ins),
+              child: _isLoading ? _buildLoader() : _buildBody(),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
+  Widget _buildLoader() {
+    return const Center(
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        SizedBox(
+          width: 22, height: 22,
+          child: CircularProgressIndicator(strokeWidth: 2, color: _kAction),
+        ),
+        SizedBox(height: 8),
+        Text('Loading…',
+            style: TextStyle(
+              color: _kTextMuted, fontSize: 9,
+              decoration: TextDecoration.none,
+            )),
+      ]),
+    );
+  }
+
+  Widget _buildBody() {
+    return Stack(children: [
+      Column(children: [
+        // ── Collapsing greeting header ─────────────────────────────────────
+        // ClipRect stops the text painting outside its shrinking box
+        ClipRect(
+          child: SizedBox(
+            height: _headerHeight,
+            child: Opacity(
+              opacity: _headerOpacity,
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: Text(
+                  _firstName.isNotEmpty
+                      ? 'Here are your reminders, $_firstName'
+                      : 'Here are your reminders',
+                  style: _kBase.copyWith(
+                    color: _kTextDark,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    height: 1.3,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.clip,
+                ),
+              ),
             ),
           ),
         ),
-      ),
-    );
-  }
 
-  Widget _buildContent() {
-    return Stack(
-      children: [
-        _reminders.isEmpty ? _buildEmptyState() : _buildReminderList(),
-        if (_isRefreshing) _FwoopRefreshOverlay(exploded: _refreshExploded),
-      ],
-    );
-  }
+        // Small gap that also collapses proportionally
+        SizedBox(height: _headerOpacity * 6),
 
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          if (_patientName.isNotEmpty) ...[
-            Text(
-              'Welcome, $_patientName',
-              style: const TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF3D2C31)),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-          ],
-          const Text('↑ swipe to refresh',
-              style: TextStyle(fontSize: 8, color: Colors.grey)),
-          const SizedBox(height: 8),
-          const Text('No reminders today',
-              style: TextStyle(fontSize: 10, color: Colors.grey)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildReminderList() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Text(
-          _patientName.isNotEmpty ? 'Welcome, $_patientName' : 'Today',
-          style: const TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF3D2C31)),
-          textAlign: TextAlign.center,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        const SizedBox(height: 2),
-        const Text(
-          '↓ swipe to refresh',
-          style: TextStyle(fontSize: 7, color: Colors.grey),
-        ),
-        const SizedBox(height: 6),
+        // ── Scrollable reminder list ───────────────────────────────────────
         Expanded(
-          child: ListView.builder(
+          child: _reminders.isEmpty
+              ? _buildEmpty()
+              : ListView.separated(
+            controller: _scrollCtrl,
             padding: EdgeInsets.zero,
-            shrinkWrap: false,
-            itemCount: _reminders.length,
-            itemBuilder: (context, index) {
-              final reminder = _reminders[index];
-              final time = (reminder['time'] as Timestamp?)?.toDate();
-              final timeStr = time != null
-                  ? DateFormat('h:mm a').format(time.toLocal())
-                  : '';
-              final isSnoozed = reminder['isSnoozed'] == true;
-              final acknowledgedEarly = reminder['acknowledgedEarly'] == true;
-              final isNext = index == 0;
-
-              final statusPrefix = acknowledgedEarly
-                  ? 'Seen'
-                  : isSnoozed
-                  ? 'Snoozed'
-                  : isNext
-                  ? 'Next'
-                  : 'Reminder';
-
-              return GestureDetector(
-                onTap: () => _showWatchReminderDialog({
-                  'reminderId': reminder['id'],
-                  'title': reminder['title'] ?? 'Reminder',
-                  'description': reminder['description'] ?? '',
-                  'time': timeStr,
-                  'timestamp': time?.millisecondsSinceEpoch,
-                }),
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      if (index > 0)
-                        Divider(
-                          height: 1,
-                          thickness: 0.5,
-                          color: Colors.grey.withOpacity(0.3),
-                        ),
-                      if (index > 0) const SizedBox(height: 5),
-                      Text(
-                        '$statusPrefix:  ${reminder['title'] ?? ''}',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight:
-                          isNext ? FontWeight.bold : FontWeight.normal,
-                          color: acknowledgedEarly
-                              ? Colors.grey
-                              : const Color(0xFF3D2C31),
-                        ),
-                        textAlign: TextAlign.center,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      Text(
-                        timeStr,
-                        style: const TextStyle(
-                          fontSize: 9,
-                          color: Colors.grey,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ),
-                ),
-              );
+            // Extra bottom item = refresh button
+            itemCount: _reminders.length + 1,
+            separatorBuilder: (_, i) =>
+            i < _reminders.length - 1
+                ? const SizedBox(height: 4)
+                : const SizedBox.shrink(),
+            itemBuilder: (_, i) {
+              if (i == _reminders.length) return _buildRefreshButton();
+              return _buildTile(i);
             },
           ),
         ),
-      ],
+      ]),
+
+      // Fwoop overlay
+      if (_isRefreshing)
+        _FwoopRefreshOverlay(exploded: _refreshExploded),
+    ]);
+  }
+
+  Widget _buildEmpty() {
+    return Column(children: [
+      Expanded(
+        child: Center(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.check_circle_outline,
+                color: _kAction.withOpacity(0.5), size: 22),
+            const SizedBox(height: 6),
+            Text('No reminders today',
+                style: _kBase.copyWith(color: _kTextMuted, fontSize: 8.5),
+                textAlign: TextAlign.center),
+          ]),
+        ),
+      ),
+      _buildRefreshButton(),
+    ]);
+  }
+
+  Widget _buildRefreshButton() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 6, bottom: 2),
+      child: Center(
+        child: GestureDetector(
+          onTap: _handleRefresh,
+          child: Container(
+            padding:
+            const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: _kAction.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(12),
+              border:
+              Border.all(color: _kAction.withOpacity(0.35), width: 0.8),
+            ),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              const Icon(Icons.refresh, color: _kAction, size: 10),
+              const SizedBox(width: 3),
+              Text('Refresh',
+                  style: _kBase.copyWith(
+                      color: _kAction,
+                      fontSize: 8,
+                      fontWeight: FontWeight.w600)),
+            ]),
+          ),
+        ),
+      ),
     );
   }
-} // ← END of _WatchPatientScreenState
 
-// ─── Fwoop Refresh Overlay ───────────────────────────────────────────────────
+  Widget _buildTile(int i) {
+    final r       = _reminders[i];
+    final time    = (r['time'] as Timestamp?)?.toDate();
+    final timeStr = time != null
+        ? DateFormat('h:mm a').format(time.toLocal())
+        : '';
+
+    return GestureDetector(
+      onTap: () => _showReminderDialog({
+        'reminderId': r['id'],
+        'title': r['title'] ?? 'Reminder',
+        'time': timeStr,
+        'timestamp': time?.millisecondsSinceEpoch,
+      }),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
+        decoration: BoxDecoration(
+          color: _kCard,
+          borderRadius: BorderRadius.circular(9),
+          border: Border.all(color: _kDivider, width: 0.8),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(r['title'] ?? '',
+                style: _kBase.copyWith(
+                    color: _kTextDark,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w600),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis),
+            Text(timeStr,
+                style: _kBase.copyWith(
+                    color: _kTextMuted, fontSize: 7.5)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Fwoop Refresh Overlay ──────────────────────────────────────────────────────
 
 class _FwoopRefreshOverlay extends StatefulWidget {
   final bool exploded;
@@ -419,11 +431,10 @@ class _FwoopRefreshOverlay extends StatefulWidget {
 
 class _FwoopRefreshOverlayState extends State<_FwoopRefreshOverlay>
     with TickerProviderStateMixin {
-  late final AnimationController _spinController;
-  late final AnimationController _pulseController;
-  late final AnimationController _explodeController;
-  late final AnimationController _fadeController;
-
+  late final AnimationController _spinCtrl;
+  late final AnimationController _pulseCtrl;
+  late final AnimationController _explodeCtrl;
+  late final AnimationController _fadeCtrl;
   late final Animation<double> _pulseAnim;
   late final Animation<double> _explodeAnim;
   late final Animation<double> _fadeAnim;
@@ -431,50 +442,39 @@ class _FwoopRefreshOverlayState extends State<_FwoopRefreshOverlay>
   @override
   void initState() {
     super.initState();
-
-    _spinController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 500),
-    )..repeat();
-
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 400),
-    )..repeat(reverse: true);
-    _pulseAnim = Tween<double>(begin: 0.85, end: 1.15).animate(
-      CurvedAnimation(parent: _pulseController, curve: Curves.elasticInOut),
-    );
-
-    _explodeController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 700),
-    );
+    _spinCtrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 600))
+      ..repeat();
+    _pulseCtrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 500))
+      ..repeat(reverse: true);
+    _pulseAnim = Tween<double>(begin: 0.88, end: 1.12).animate(
+        CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut));
+    _explodeCtrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 700));
     _explodeAnim =
-        CurvedAnimation(parent: _explodeController, curve: Curves.easeOut);
-
-    _fadeController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 300),
-    );
-    _fadeAnim = Tween<double>(begin: 1.0, end: 0.0).animate(_fadeController);
+        CurvedAnimation(parent: _explodeCtrl, curve: Curves.easeOut);
+    _fadeCtrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 400));
+    _fadeAnim = Tween<double>(begin: 1, end: 0).animate(_fadeCtrl);
   }
 
   @override
-  void didUpdateWidget(_FwoopRefreshOverlay oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.exploded && !oldWidget.exploded) {
-      _spinController.stop();
-      _pulseController.stop();
-      _explodeController.forward().then((_) => _fadeController.forward());
+  void didUpdateWidget(_FwoopRefreshOverlay old) {
+    super.didUpdateWidget(old);
+    if (widget.exploded && !old.exploded) {
+      _spinCtrl.stop();
+      _pulseCtrl.stop();
+      _explodeCtrl.forward().then((_) => _fadeCtrl.forward());
     }
   }
 
   @override
   void dispose() {
-    _spinController.dispose();
-    _pulseController.dispose();
-    _explodeController.dispose();
-    _fadeController.dispose();
+    _spinCtrl.dispose();
+    _pulseCtrl.dispose();
+    _explodeCtrl.dispose();
+    _fadeCtrl.dispose();
     super.dispose();
   }
 
@@ -483,66 +483,59 @@ class _FwoopRefreshOverlayState extends State<_FwoopRefreshOverlay>
     return Positioned.fill(
       child: FadeTransition(
         opacity: _fadeAnim,
-        child: Center(
-          child: SizedBox(
-            width: 70,
-            height: 70,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
+        child: Container(
+          decoration: BoxDecoration(
+              color: _kBg.withOpacity(0.85), shape: BoxShape.circle),
+          child: Center(
+            child: SizedBox(
+              width: 70, height: 70,
+              child: Stack(alignment: Alignment.center, children: [
                 AnimatedBuilder(
                   animation: _explodeAnim,
                   builder: (_, __) {
-                    if (_explodeAnim.value == 0) return const SizedBox.shrink();
+                    if (_explodeAnim.value == 0)
+                      return const SizedBox.shrink();
                     return CustomPaint(
-                      size: const Size(70, 70),
-                      painter:
-                      _ExplosionPainter(progress: _explodeAnim.value),
-                    );
+                        size: const Size(70, 70),
+                        painter: _ExplosionPainter(
+                            progress: _explodeAnim.value));
                   },
                 ),
                 AnimatedBuilder(
                   animation:
-                  Listenable.merge([_spinController, _pulseAnim]),
-                  builder: (_, __) {
-                    return Transform.scale(
-                      scale: widget.exploded ? 1.4 : _pulseAnim.value,
-                      child: Transform.rotate(
-                        angle: widget.exploded
-                            ? 0
-                            : _spinController.value * 2 * pi,
-                        child: Container(
-                          width: 36,
-                          height: 36,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.white,
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(0xFF8FA9C9).withOpacity(0.4),
-                                blurRadius: 8,
-                                spreadRadius: 2,
-                              ),
-                            ],
-                          ),
-                          child: widget.exploded
-                              ? const Icon(Icons.check,
-                              color: Color(0xFF8FA9C9), size: 20)
-                              : Padding(
-                            padding: const EdgeInsets.all(6),
-                            child: CircularProgressIndicator(
-                              strokeWidth: 3,
-                              color: const Color(0xFF8FA9C9),
-                              backgroundColor:
-                              const Color(0xFF8FA9C9).withOpacity(0.2),
-                            ),
+                  Listenable.merge([_spinCtrl, _pulseAnim]),
+                  builder: (_, __) => Transform.scale(
+                    scale:
+                    widget.exploded ? 1.35 : _pulseAnim.value,
+                    child: Transform.rotate(
+                      angle: widget.exploded
+                          ? 0
+                          : _spinCtrl.value * 2 * pi,
+                      child: Container(
+                        width: 38, height: 38,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: _kAction.withOpacity(0.15),
+                          border:
+                          Border.all(color: _kAction, width: 1.5),
+                        ),
+                        child: widget.exploded
+                            ? const Icon(Icons.check,
+                            color: _kAction, size: 20)
+                            : Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: _kAction,
+                            backgroundColor:
+                            _kAction.withOpacity(0.2),
                           ),
                         ),
                       ),
-                    );
-                  },
+                    ),
+                  ),
                 ),
-              ],
+              ]),
             ),
           ),
         ),
@@ -551,72 +544,43 @@ class _FwoopRefreshOverlayState extends State<_FwoopRefreshOverlay>
   }
 }
 
-// ─── Explosion Painter ───────────────────────────────────────────────────────
+// ── Explosion Painter ──────────────────────────────────────────────────────────
 
 class _ExplosionPainter extends CustomPainter {
   final double progress;
-  static const int _particleCount = 10;
+  static const int _n = 12;
   static final List<Color> _colors = [
-    const Color(0xFF8FA9C9),
-    const Color(0xFFE8C4C8),
-    const Color(0xFFF5E6D3),
-    Colors.orangeAccent,
-    Colors.lightGreenAccent,
+    _kEmergency, _kAction, const Color(0xFFB8CCE0),
+    const Color(0xFFFFD54F), const Color(0xFF81C784),
   ];
-
   const _ExplosionPainter({required this.progress});
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final random = Random(42);
-
-    for (int i = 0; i < _particleCount; i++) {
-      final angle =
-          (i / _particleCount) * 2 * pi + random.nextDouble() * 0.4;
-      final distance = (size.width * 0.55) * progress;
+    final rng    = Random(42);
+    for (int i = 0; i < _n; i++) {
+      final angle   = (i / _n) * 2 * pi + rng.nextDouble() * 0.5;
+      final dist    = size.width * 0.5 * progress;
       final opacity = (1.0 - progress).clamp(0.0, 1.0);
-      final radius = (3.5 * (1 - progress * 0.5)).clamp(1.0, 5.0);
-
-      final particleOffset = Offset(
-        center.dx + cos(angle) * distance,
-        center.dy + sin(angle) * distance,
+      final radius  = (3.5 * (1 - progress * 0.5)).clamp(1.0, 5.0);
+      canvas.drawCircle(
+        Offset(center.dx + cos(angle) * dist,
+            center.dy + sin(angle) * dist),
+        radius,
+        Paint()
+          ..color =
+          _colors[i % _colors.length].withOpacity(opacity),
       );
-
-      final paint = Paint()
-        ..color = _colors[i % _colors.length].withOpacity(opacity)
-        ..style = PaintingStyle.fill;
-
-      if (i % 3 == 0) {
-        final path = Path();
-        const starSize = 4.0;
-        for (int s = 0; s < 4; s++) {
-          final starAngle = (s / 4) * 2 * pi * progress;
-          final tip = Offset(
-            particleOffset.dx +
-                cos(starAngle) * starSize * (1 - progress * 0.6),
-            particleOffset.dy +
-                sin(starAngle) * starSize * (1 - progress * 0.6),
-          );
-          if (s == 0) {
-            path.moveTo(tip.dx, tip.dy);
-          } else {
-            path.lineTo(tip.dx, tip.dy);
-          }
-        }
-        path.close();
-        canvas.drawPath(path, paint);
-      } else {
-        canvas.drawCircle(particleOffset, radius, paint);
-      }
     }
   }
 
   @override
-  bool shouldRepaint(_ExplosionPainter old) => old.progress != progress;
+  bool shouldRepaint(_ExplosionPainter old) =>
+      old.progress != progress;
 }
 
-// ─── Watch Reminder Dialog ───────────────────────────────────────────────────
+// ── Watch Reminder Dialog ──────────────────────────────────────────────────────
 
 class WatchReminderDialog extends StatelessWidget {
   final String title;
@@ -633,31 +597,26 @@ class WatchReminderDialog extends StatelessWidget {
   });
 
   Future<void> _markComplete() async {
-    final scheduledTime = timestamp != null
+    final scheduled = timestamp != null
         ? DateTime.fromMillisecondsSinceEpoch(timestamp as int)
         : null;
-    final now = DateTime.now();
-
-    if (scheduledTime != null && now.isBefore(scheduledTime)) {
-      await FirebaseFirestore.instance
-          .collection('reminders')
-          .doc(reminderId)
-          .update({'acknowledgedEarly': true});
+    final ref = FirebaseFirestore.instance
+        .collection('reminders')
+        .doc(reminderId);
+    if (scheduled != null && DateTime.now().isBefore(scheduled)) {
+      await ref.update({'acknowledgedEarly': true});
     } else {
-      await FirebaseFirestore.instance
-          .collection('reminders')
-          .doc(reminderId)
-          .update({'completed': true});
+      await ref.update({'completed': true});
     }
   }
 
   Future<void> _snooze() async {
-    final newTime = DateTime.now().add(const Duration(minutes: 5));
     await FirebaseFirestore.instance
         .collection('reminders')
         .doc(reminderId)
         .update({
-      'time': Timestamp.fromDate(newTime),
+      'time': Timestamp.fromDate(
+          DateTime.now().add(const Duration(minutes: 5))),
       'completed': false,
       'isSnoozed': true,
     });
@@ -667,69 +626,92 @@ class WatchReminderDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     return Dialog(
       backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.all(8),
+      insetPadding: const EdgeInsets.all(10),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
-          color: const Color(0xFFF5E6E8),
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.notifications_active,
-                color: Color(0xFF8FA9C9), size: 22),
-            const SizedBox(height: 4),
-            Text(
-              title,
-              style:
-              const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-            Text(time,
-                style: const TextStyle(fontSize: 10, color: Colors.grey)),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              height: 32,
-              child: ElevatedButton(
-                onPressed: () async {
-                  await _markComplete();
-                  if (context.mounted) Navigator.of(context).pop();
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF8FA9C9),
-                  foregroundColor: Colors.white,
-                  padding: EdgeInsets.zero,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8)),
-                ),
-                child: const Text('Done', style: TextStyle(fontSize: 12)),
-              ),
-            ),
-            const SizedBox(height: 4),
-            SizedBox(
-              width: double.infinity,
-              height: 32,
-              child: OutlinedButton(
-                onPressed: () async {
-                  await _snooze();
-                  if (context.mounted) Navigator.of(context).pop();
-                },
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFF8FA9C9),
-                  side: const BorderSide(color: Color(0xFF8FA9C9)),
-                  padding: EdgeInsets.zero,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8)),
-                ),
-                child: const Text('+5 min', style: TextStyle(fontSize: 12)),
-              ),
-            ),
+          color: _kBg,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: _kDivider, width: 1),
+          boxShadow: [
+            BoxShadow(
+                color: _kEmergency.withOpacity(0.15),
+                blurRadius: 20,
+                spreadRadius: 2),
           ],
         ),
+        padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            width: 34, height: 34,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: _kEmergency.withOpacity(0.14),
+            ),
+            child: const Icon(Icons.notifications_active,
+                color: _kEmergency, size: 18),
+          ),
+          const SizedBox(height: 7),
+          Text(title,
+              style: _kBase.copyWith(
+                  color: _kTextDark,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis),
+          const SizedBox(height: 2),
+          Text(time,
+              style: _kBase.copyWith(
+                  color: _kAction,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w500)),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity, height: 30,
+            child: ElevatedButton(
+              onPressed: () async {
+                await _markComplete();
+                if (context.mounted) Navigator.of(context).pop();
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _kAction,
+                foregroundColor: Colors.white,
+                padding: EdgeInsets.zero,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(9)),
+              ),
+              child: Text('Done',
+                  style: _kBase.copyWith(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800)),
+            ),
+          ),
+          const SizedBox(height: 5),
+          SizedBox(
+            width: double.infinity, height: 28,
+            child: OutlinedButton(
+              onPressed: () async {
+                await _snooze();
+                if (context.mounted) Navigator.of(context).pop();
+              },
+              style: OutlinedButton.styleFrom(
+                foregroundColor: _kTextMid,
+                backgroundColor: _kCard,
+                side: const BorderSide(color: _kDivider, width: 1),
+                padding: EdgeInsets.zero,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(9)),
+              ),
+              child: Text('+5 min',
+                  style: _kBase.copyWith(
+                      color: _kTextMid,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600)),
+            ),
+          ),
+        ]),
       ),
     );
   }
