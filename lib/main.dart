@@ -84,30 +84,189 @@ class AppEntry extends StatelessWidget {
   }
 }
 
+// ── Watch active face ─────────────────────────────────────────────────────────
+//
+// The StreamBuilder gives us the Firebase Auth user, but we ALSO need to check
+// userType in Firestore before routing — otherwise a caretaker who signs in
+// will reach WatchPatientScreen before the login page's signOut() fires.
+//
+// We use a FutureBuilder nested inside the StreamBuilder so that every time the
+// auth state changes (sign-in or sign-out) we re-fetch the role from Firestore.
+
 class _WatchActiveFace extends StatelessWidget {
   const _WatchActiveFace();
+
+  Future<String?> _fetchUserType(String uid) async {
+    try {
+      final authService = AuthService();
+      final data = await authService.getUserData(uid);
+      return (data?['userType'] as String? ?? '').trim();
+    } catch (_) {
+      return null;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            backgroundColor: Color(0xFFF5E6D3),
-            body: Center(child: CircularProgressIndicator()),
-          );
+      builder: (context, authSnap) {
+        // Still connecting — show a neutral loader
+        if (authSnap.connectionState == ConnectionState.waiting) {
+          return const _WatchLoader();
         }
 
-        final user = snapshot.data;
-        if (user == null) return WatchLoginPage();
+        final user = authSnap.data;
 
-        // ✅ Pass the UID directly — no more internal auth lookup in the screen
-        return WatchPatientScreen(patientId: user.uid);
+        // Not signed in → login page
+        if (user == null) return const WatchLoginPage();
+
+        // Signed in — now verify the role before granting access
+        return FutureBuilder<String?>(
+          future: _fetchUserType(user.uid),
+          builder: (context, roleSnap) {
+            // Still fetching role — show loader
+            if (roleSnap.connectionState == ConnectionState.waiting) {
+              return const _WatchLoader();
+            }
+
+            final userType = roleSnap.data ?? '';
+
+            // Caretaker account — show rejection screen; it signs out on swipe
+            if (userType == 'caretaker') {
+              return const _WatchCaretakerRejection();
+            }
+
+            // Patient (or empty/unknown type — fail safe to patient screen)
+            return WatchPatientScreen(patientId: user.uid);
+          },
+        );
       },
     );
   }
 }
+
+// ── Small helper widgets ──────────────────────────────────────────────────────
+
+class _WatchLoader extends StatelessWidget {
+  const _WatchLoader();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      backgroundColor: Color(0xFFF5E6D3),
+      body: Center(child: CircularProgressIndicator()),
+    );
+  }
+}
+
+/// Displayed when a caretaker tries to log in on the watch.
+/// Stays visible until the user swipes it away, then signs out.
+class _WatchCaretakerRejection extends StatefulWidget {
+  const _WatchCaretakerRejection();
+
+  @override
+  State<_WatchCaretakerRejection> createState() =>
+      _WatchCaretakerRejectionState();
+}
+
+class _WatchCaretakerRejectionState extends State<_WatchCaretakerRejection> {
+  bool _signingOut = false;
+
+  Future<void> _signOut() async {
+    if (_signingOut) return;
+    setState(() => _signingOut = true);
+    await FirebaseAuth.instance.signOut();
+    // Auth stream in _WatchActiveFace will detect null and show login page.
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      // Any horizontal or vertical swipe dismisses the screen
+      onHorizontalDragEnd: (d) {
+        if ((d.primaryVelocity ?? 0).abs() > 80) _signOut();
+      },
+      onVerticalDragEnd: (d) {
+        if ((d.primaryVelocity ?? 0).abs() > 80) _signOut();
+      },
+      child: LayoutBuilder(
+        builder: (context, bc) {
+          final diameter = bc.maxWidth;
+          return ClipOval(
+            child: Container(
+              width: diameter,
+              height: diameter,
+              color: const Color(0xFFF5E6D3),
+              child: _signingOut
+                  ? const Center(child: CircularProgressIndicator(
+                  color: Color(0xFFE8736C), strokeWidth: 2))
+                  : Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 40, height: 40,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE8736C).withOpacity(0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.watch_off_rounded,
+                        color: Color(0xFFE8736C), size: 22),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Patients only',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF3D2C31),
+                      decoration: TextDecoration.none,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 5),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 20),
+                    child: Text(
+                      'Sorry, this app is only usable for patients!',
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: Color(0xFF7A6060),
+                        height: 1.4,
+                        decoration: TextDecoration.none,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  // Swipe hint
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.swipe,
+                          size: 10, color: Color(0xFFA08080)),
+                      const SizedBox(width: 3),
+                      const Text(
+                        'swipe to dismiss',
+                        style: TextStyle(
+                          fontSize: 8,
+                          color: Color(0xFFA08080),
+                          decoration: TextDecoration.none,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ── Watch ambient face ────────────────────────────────────────────────────────
 
 class _WatchAmbientFace extends StatelessWidget {
   const _WatchAmbientFace();
@@ -125,6 +284,8 @@ class _WatchAmbientFace extends StatelessWidget {
     );
   }
 }
+
+// ── Phone auth wrapper ────────────────────────────────────────────────────────
 
 class AuthWrapper extends StatefulWidget {
   const AuthWrapper({super.key});

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/auth_service.dart';
 
 class WatchLoginPage extends StatefulWidget {
@@ -9,10 +10,10 @@ class WatchLoginPage extends StatefulWidget {
 }
 
 class _WatchLoginPageState extends State<WatchLoginPage> {
-  final _emailController = TextEditingController();
+  final _emailController    = TextEditingController();
   final _passwordController = TextEditingController();
-  final _authService = AuthService();
-  bool _isLoading = false;
+  final _authService        = AuthService();
+  bool    _isLoading    = false;
   String? _errorMessage;
 
   @override
@@ -29,34 +30,121 @@ class _WatchLoginPageState extends State<WatchLoginPage> {
     }
 
     setState(() {
-      _isLoading = true;
+      _isLoading    = true;
       _errorMessage = null;
     });
 
     try {
       final result = await _authService.signIn(
-        email: _emailController.text.trim(),
+        email:    _emailController.text.trim(),
         password: _passwordController.text,
       );
 
-      if (mounted) {
-        if (!result['success']) {
-          setState(() {
-            _errorMessage = 'Invalid credentials';
-            _isLoading = false;
-          });
-        }
-        // If success, WatchActiveFace's StreamBuilder will automatically
-        // detect the auth change and navigate to WatchPatientScreen
+      if (!mounted) return;
+
+      // Sign-in failed (wrong password, user not found, etc.)
+      if (result['success'] != true) {
+        setState(() {
+          _errorMessage = 'Invalid credentials';
+          _isLoading    = false;
+        });
+        return;
       }
+
+      // ── Role check ────────────────────────────────────────────────────────
+      // AuthService.signIn() reads `userType` from the users Firestore
+      // document and returns it in the result map — no extra call needed.
+      final userType = (result['userType'] as String? ?? '').trim();
+
+      if (userType == 'caretaker') {
+        // Sign them back out and show the friendly error.
+        await FirebaseAuth.instance.signOut();
+        if (!mounted) return;
+        setState(() => _isLoading = false);
+        _showCaretakerDialog();
+        return;
+      }
+
+      // Patient — WatchActiveFace auth-state stream handles navigation.
+      if (mounted) setState(() => _isLoading = false);
+
     } catch (e) {
       if (mounted) {
         setState(() {
           _errorMessage = 'Login failed';
-          _isLoading = false;
+          _isLoading    = false;
         });
       }
     }
+  }
+
+  void _showCaretakerDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (_) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        backgroundColor: const Color(0xFFF5E6D3),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 44, height: 44,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE8736C).withOpacity(0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.watch_off_rounded,
+                    color: Color(0xFFE8736C), size: 24),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Patients only',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.brown.shade800,
+                  decoration: TextDecoration.none,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Sorry, this app is only usable for patients!',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.brown.shade600,
+                  height: 1.4,
+                  decoration: TextDecoration.none,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFD4A5A5),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                  ),
+                  child: const Text('OK',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          decoration: TextDecoration.none)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -69,7 +157,6 @@ class _WatchLoginPageState extends State<WatchLoginPage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Logo
               Icon(Icons.favorite, color: Colors.brown.shade400, size: 24),
               const SizedBox(height: 4),
               Text(
@@ -84,7 +171,6 @@ class _WatchLoginPageState extends State<WatchLoginPage> {
 
               const SizedBox(height: 10),
 
-              // Email field
               _WatchTextField(
                 controller: _emailController,
                 label: 'Email',
@@ -93,14 +179,12 @@ class _WatchLoginPageState extends State<WatchLoginPage> {
 
               const SizedBox(height: 6),
 
-              // Password field
               _WatchTextField(
                 controller: _passwordController,
                 label: 'Password',
                 obscureText: true,
               ),
 
-              // Error message
               if (_errorMessage != null) ...[
                 const SizedBox(height: 6),
                 Text(
@@ -108,6 +192,7 @@ class _WatchLoginPageState extends State<WatchLoginPage> {
                   style: const TextStyle(
                     color: Colors.red,
                     fontSize: 10,
+                    decoration: TextDecoration.none,
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -115,7 +200,6 @@ class _WatchLoginPageState extends State<WatchLoginPage> {
 
               const SizedBox(height: 10),
 
-              // Login button
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
@@ -125,25 +209,20 @@ class _WatchLoginPageState extends State<WatchLoginPage> {
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 10),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
+                        borderRadius: BorderRadius.circular(10)),
                   ),
                   child: _isLoading
                       ? const SizedBox(
-                          height: 14,
-                          width: 14,
-                          child: CircularProgressIndicator(
-                            color: Colors.white,
-                            strokeWidth: 2,
-                          ),
-                        )
+                    height: 14,
+                    width: 14,
+                    child: CircularProgressIndicator(
+                        color: Colors.white, strokeWidth: 2),
+                  )
                       : const Text(
-                          'Login',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                    'Login',
+                    style: TextStyle(
+                        fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
                 ),
               ),
             ],
@@ -154,7 +233,8 @@ class _WatchLoginPageState extends State<WatchLoginPage> {
   }
 }
 
-// Compact text field sized for watch screens
+// ── Compact text field sized for watch screens ────────────────────────────────
+
 class _WatchTextField extends StatelessWidget {
   final TextEditingController controller;
   final String label;
@@ -194,10 +274,8 @@ class _WatchTextField extends StatelessWidget {
               borderRadius: BorderRadius.circular(8),
               borderSide: BorderSide.none,
             ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 8,
-              vertical: 8,
-            ),
+            contentPadding:
+            const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
             isDense: true,
           ),
         ),
