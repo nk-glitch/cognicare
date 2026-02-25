@@ -563,7 +563,7 @@ class _PatientDetailPageState extends State<PatientDetailPage>
               _buildNavButton(Icons.calendar_today, 0),
               _buildNavButton(Icons.location_on, 1),
               _buildCenterAddButton(),
-              _buildNavButton(Icons.person, 3),
+              _buildNavButton(Icons.person, 3, tooltip: 'Profile'),
             ],
           ),
         ),
@@ -571,31 +571,47 @@ class _PatientDetailPageState extends State<PatientDetailPage>
     );
   }
 
-  Widget _buildNavButton(IconData icon, int index) {
+  Widget _buildNavButton(IconData icon, int index, {String? tooltip}) {
     final isSelected = _selectedNavIndex == index;
-    return IconButton(
-      onPressed: () {
-        setState(() {
-          _selectedNavIndex = index;
-        });
-        _handleNavigation(index);
-      },
-      icon: Icon(
-        icon,
-        color: isSelected ? const Color(0xFF8FA9C9) : const Color(0xFF9E9E9E),
-        size: 28,
+    return Tooltip(
+      message: tooltip ?? _navLabel(index),
+      child: IconButton(
+        onPressed: () {
+          setState(() {
+            _selectedNavIndex = index;
+          });
+          _handleNavigation(index);
+        },
+        icon: Icon(
+          icon,
+          color: isSelected ? const Color(0xFF8FA9C9) : const Color(0xFF9E9E9E),
+          size: 28,
+        ),
       ),
     );
   }
 
+  String _navLabel(int index) {
+    switch (index) {
+      case 0: return 'Calendar';
+      case 1: return 'Location';
+      case 2: return 'Add reminder';
+      case 3: return 'Profile';
+      default: return '';
+    }
+  }
+
   Widget _buildCenterAddButton() {
     final isSelected = _selectedNavIndex == 2;
-    return IconButton(
-      onPressed: _showReminderPopup,
-      icon: Icon(
-        Icons.add_circle_outline,
-        color: isSelected ? const Color(0xFF8FA9C9) : const Color(0xFF9E9E9E),
-        size: 28,
+    return Tooltip(
+      message: 'Add reminder',
+      child: IconButton(
+        onPressed: _showReminderPopup,
+        icon: Icon(
+          Icons.add_circle_outline,
+          color: isSelected ? const Color(0xFF8FA9C9) : const Color(0xFF9E9E9E),
+          size: 28,
+        ),
       ),
     );
   }

@@ -528,29 +528,43 @@ class _PatientHomePageState extends State<PatientHomePage>
         children: [
           Row(
             children: [
-              InkWell(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const ProfilePage(isCaretaker: false),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  InkWell(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const ProfilePage(isCaretaker: false),
+                        ),
+                      );
+                    },
+                    borderRadius: BorderRadius.circular(25),
+                    child: Container(
+                      width: 50,
+                      height: 50,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.7),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.person,
+                        size: 28,
+                        color: Color(0xFF8FA9C9),
+                      ),
                     ),
-                  );
-                },
-                borderRadius: BorderRadius.circular(25),
-                child: Container(
-                  width: 50,
-                  height: 50,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.7),
-                    shape: BoxShape.circle,
                   ),
-                  child: const Icon(
-                    Icons.person,
-                    size: 28,
-                    color: Color(0xFF8FA9C9),
+                  const SizedBox(height: 2),
+                  const Text(
+                    'Profile',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF3D2C31),
+                    ),
                   ),
-                ),
+                ],
               ),
               const SizedBox(width: 16),
               Expanded(

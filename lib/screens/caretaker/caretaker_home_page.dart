@@ -216,15 +216,22 @@ class _CaretakerHomePageState extends State<CaretakerHomePage>
               Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(8),
+                    padding: const EdgeInsets.all(6),
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.5),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Icon(
-                      Icons.favorite,
-                      color: Color(0xFFD47A8A),
-                      size: 24,
+                    child: Image.asset(
+                      'assets/images/logo_no_text.png',
+                      width: 28,
+                      height: 28,
+                      errorBuilder: (context, error, stackTrace) {
+                        return const Icon(
+                          Icons.favorite,
+                          color: Color(0xFFD47A8A),
+                          size: 24,
+                        );
+                      },
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -271,38 +278,51 @@ class _CaretakerHomePageState extends State<CaretakerHomePage>
                   ],
                 ),
               ),
-              InkWell(
-                onTap: () async {
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const ProfilePage(isCaretaker: true),
-                    ),
-                  );
-                  // Refresh data when returning from profile
-                  _refreshData();
-                },
-                borderRadius: BorderRadius.circular(35),
-                child: Container(
-                  width: 70,
-                  height: 70,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.15),
-                        blurRadius: 8,
-                        offset: const Offset(0, 3),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  InkWell(
+                    onTap: () async {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const ProfilePage(isCaretaker: true),
+                        ),
+                      );
+                      _refreshData();
+                    },
+                    borderRadius: BorderRadius.circular(35),
+                    child: Container(
+                      width: 70,
+                      height: 70,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.15),
+                            blurRadius: 8,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
                       ),
-                    ],
+                      child: const Icon(
+                        Icons.person,
+                        size: 40,
+                        color: Color(0xFF8FA9C9),
+                      ),
+                    ),
                   ),
-                  child: const Icon(
-                    Icons.person,
-                    size: 40,
-                    color: Color(0xFF8FA9C9),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Profile',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF5A4046),
+                    ),
                   ),
-                ),
+                ],
               ),
             ],
           ),
