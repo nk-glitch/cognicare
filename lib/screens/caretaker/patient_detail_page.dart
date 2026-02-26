@@ -277,12 +277,14 @@ class _PatientDetailPageState extends State<PatientDetailPage>
                       ),
                     ),
                     const SizedBox(width: 12),
-                    const Text(
-                      "Today's Reminders",
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF3D2C31),
+                    const Expanded(
+                      child: Text(
+                        "Today's Reminders",
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF3D2C31),
+                        ),
                       ),
                     ),
                   ],

@@ -9,6 +9,7 @@ import '../../services/location_service.dart';
 import '../../services/notification_service.dart';
 import '../profile_page.dart';
 import '../auth/login_page.dart';
+import '../inbox_page.dart';
 
 class PatientHomePage extends StatefulWidget {
   const PatientHomePage({super.key});
@@ -38,6 +39,11 @@ class _PatientHomePageState extends State<PatientHomePage>
   bool _isSharingLocation = false;
   bool _locationShared = false;
 
+  // Tracks reminder IDs whose dialog is already on screen or has been shown
+  // this session, preventing the same popup from appearing multiple times.
+  final Set<String> _shownReminderDialogs = {};
+  int _pendingRequestCount = 0;
+
   @override
   void initState() {
     super.initState();
@@ -64,6 +70,7 @@ class _PatientHomePageState extends State<PatientHomePage>
     _startReminderCheckTimer();
 
     _loadPatientData();
+    _listenForPendingRequests();
 
     // Check for pending reminders after data loads
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -82,6 +89,20 @@ class _PatientHomePageState extends State<PatientHomePage>
       _locationUpdateTimer = Timer.periodic(const Duration(minutes: 5), (_) {
         if (mounted) _shareLocationInBackground();
       });
+    });
+  }
+
+  void _listenForPendingRequests() {
+    final user = _authService.currentUser;
+    if (user == null) return;
+    _firestore
+        .collection('patient_caretaker_relationships')
+        .where('patientId', isEqualTo: user.uid)
+        .where('status', isEqualTo: 'pending')
+        .snapshots()
+        .listen((snapshot) {
+      if (!mounted) return;
+      setState(() => _pendingRequestCount = snapshot.docs.length);
     });
   }
 
@@ -160,6 +181,16 @@ class _PatientHomePageState extends State<PatientHomePage>
   }
 
   void _showReminderDialog(Map<String, dynamic> reminderData) {
+    final reminderId = reminderData['reminderId'] ?? '';
+
+    // Prevent showing the same dialog twice (e.g. timer fires while dialog
+    // is already on screen, or notification tap races with periodic check).
+    if (reminderId.isNotEmpty && _shownReminderDialogs.contains(reminderId)) {
+      print('Skipping duplicate reminder dialog for $reminderId');
+      return;
+    }
+    if (reminderId.isNotEmpty) _shownReminderDialogs.add(reminderId);
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -167,9 +198,13 @@ class _PatientHomePageState extends State<PatientHomePage>
         title: reminderData['title'] ?? 'Reminder',
         description: reminderData['description'] ?? '',
         time: reminderData['time'] ?? '',
-        reminderId: reminderData['reminderId'] ?? '',
+        reminderId: reminderId,
       ),
-    );
+    ).then((_) {
+      // Once dismissed, remove from set so a genuinely new firing
+      // (e.g. after snooze) can show the dialog again.
+      _shownReminderDialogs.remove(reminderId);
+    });
   }
 
   void _showSignOutConfirmation() {
@@ -576,6 +611,45 @@ class _PatientHomePageState extends State<PatientHomePage>
                     color: Color(0xFF3D2C31),
                   ),
                 ),
+              ),
+              // Inbox bell with pending-request badge
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  InkWell(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const InboxPage(isCaretaker: false),
+                        ),
+                      );
+                    },
+                    borderRadius: BorderRadius.circular(25),
+                    child: Container(
+                      width: 50,
+                      height: 50,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.7),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.notifications, size: 28, color: Color(0xFF8FA9C9)),
+                    ),
+                  ),
+                  if (_pendingRequestCount > 0)
+                    Positioned(
+                      right: 0,
+                      top: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(color: Color(0xFFD32F2F), shape: BoxShape.circle),
+                        child: Text(
+                          _pendingRequestCount > 9 ? '9+' : '$_pendingRequestCount',
+                          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ],
           ),

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -68,10 +69,23 @@ class AppEntry extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final shortestSide = MediaQuery.of(context).size.shortestSide;
+    // MediaQuery can return Size.zero during Flutter's warm-up frame.
+    // Rendering AmbientMode (or any Navigator-less widget) at that point
+    // leaves _history empty and causes the '_history.isNotEmpty' crash.
+    final size = MediaQuery.of(context).size;
+    if (size == Size.zero) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    final shortestSide = size.shortestSide;
     final isWatch = shortestSide < 300;
 
-    if (isWatch) {
+    // AmbientMode from wear_plus is only valid on Wear OS (Android).
+    // Guard with Platform.isAndroid so it's never instantiated on iOS
+    // or in any other environment where wear_plus isn't active.
+    if (isWatch && Platform.isAndroid) {
       return AmbientMode(
         builder: (context, mode, _) {
           if (mode == WearMode.ambient) return const _WatchAmbientFace();

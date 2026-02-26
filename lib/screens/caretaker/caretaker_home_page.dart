@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/auth_service.dart';
+import '../../services/notification_service.dart';
 import '../auth/login_page.dart';
 import '../profile_page.dart';
+import '../inbox_page.dart';
 import 'patient_detail_page.dart';
 
 class CaretakerHomePage extends StatefulWidget {
@@ -24,6 +26,7 @@ class _CaretakerHomePageState extends State<CaretakerHomePage>
   String caretakerName = "Loading...";
   List<Map<String, dynamic>> patients = [];
   bool _isLoading = true;
+  int _unreadAlertCount = 0;
 
   @override
   void initState() {
@@ -52,6 +55,39 @@ class _CaretakerHomePageState extends State<CaretakerHomePage>
 
     _loadCaretakerData();
     _animationController.forward();
+    _initNotifications();
+  }
+
+  Future<void> _initNotifications() async {
+    await NotificationService.initialize();
+    await NotificationService.saveFCMToken();
+    _listenForUnreadCount();
+  }
+
+  // Fetch ALL alerts then count unread in Dart.
+  // Using where('isRead', isEqualTo: false) makes Firestore deliver cached
+  // docs one-at-a-time → badge animates 0→1→2→3. Fetching everything and
+  // counting locally gives one atomic snapshot so the badge jumps straight
+  // to the correct number.
+  void _listenForUnreadCount() {
+    final user = _authService.currentUser;
+    if (user == null) return;
+    _firestore
+        .collection('caretaker_alerts')
+        .where('caretakerId', isEqualTo: user.uid)
+        .snapshots()
+        .listen((snapshot) {
+      if (!mounted) return;
+      final count = snapshot.docs.where((d) => d.data()['isRead'] != true).length;
+      setState(() => _unreadAlertCount = count);
+    });
+  }
+
+  void _openInbox() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const InboxPage(isCaretaker: true)),
+    );
   }
 
   // Refresh data - can be called after returning from other screens
@@ -278,6 +314,46 @@ class _CaretakerHomePageState extends State<CaretakerHomePage>
                   ],
                 ),
               ),
+              // Inbox bell with unread badge
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  InkWell(
+                    onTap: _openInbox,
+                    borderRadius: BorderRadius.circular(35),
+                    child: Container(
+                      width: 56,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.15),
+                            blurRadius: 8,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(Icons.notifications, size: 28, color: Color(0xFF8FA9C9)),
+                    ),
+                  ),
+                  if (_unreadAlertCount > 0)
+                    Positioned(
+                      right: 0,
+                      top: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(color: Color(0xFFD32F2F), shape: BoxShape.circle),
+                        child: Text(
+                          _unreadAlertCount > 9 ? '9+' : '$_unreadAlertCount',
+                          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(width: 8),
               Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
