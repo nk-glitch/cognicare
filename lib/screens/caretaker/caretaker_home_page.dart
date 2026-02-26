@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/auth_service.dart';
@@ -27,6 +28,11 @@ class _CaretakerHomePageState extends State<CaretakerHomePage>
   List<Map<String, dynamic>> patients = [];
   bool _isLoading = true;
   int _unreadAlertCount = 0;
+
+  // One live stream subscription per patient for today's reminders.
+  // Stored so they can be cancelled when the widget is disposed or
+  // when patients are reloaded (to avoid duplicate listeners).
+  final List<StreamSubscription> _reminderSubscriptions = [];
 
   @override
   void initState() {
@@ -121,6 +127,12 @@ class _CaretakerHomePageState extends State<CaretakerHomePage>
 
         print('DEBUG: Found ${relationshipsSnapshot.docs.length} accepted relationships');
 
+        // Cancel any previous reminder stream subscriptions before re-subscribing.
+        for (final sub in _reminderSubscriptions) {
+          sub.cancel();
+        }
+        _reminderSubscriptions.clear();
+
         List<Map<String, dynamic>> loadedPatients = [];
         for (var doc in relationshipsSnapshot.docs) {
           final data = doc.data();
@@ -139,30 +151,11 @@ class _CaretakerHomePageState extends State<CaretakerHomePage>
               : 'Patient';
           final location = patientData?['address'] ?? 'No location set';
 
-          // Get today's reminders for this patient
-          final now = DateTime.now();
-          final startOfDay = DateTime(now.year, now.month, now.day);
-          final endOfDay = DateTime(now.year, now.month, now.day, 23, 59, 59);
-
-          final remindersSnapshot = await _firestore
-              .collection('reminders')
-              .where('patientId', isEqualTo: patientId)
-              .where('time', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
-              .where('time', isLessThanOrEqualTo: Timestamp.fromDate(endOfDay))
-              .get();
-
-          final remindersList = remindersSnapshot.docs
-              .where((doc) => doc.data()['isSnoozed'] != true) // Filter out snoozed reminders
-              .map((doc) => doc.data()['title'] as String)
-              .toList();
-
-          print('DEBUG: Found ${remindersList.length} reminders for patient');
-
           loadedPatients.add({
             'patientId': patientId,
             'name': patientName,
             'location': location,
-            'reminders': remindersList,
+            'reminders': <String>[], // populated immediately by the stream below
           });
         }
 
@@ -172,6 +165,40 @@ class _CaretakerHomePageState extends State<CaretakerHomePage>
           patients = loadedPatients;
           _isLoading = false;
         });
+
+        // Set up a live stream for today's reminders for each patient.
+        // Any add/edit/delete in Firestore is pushed here instantly.
+        final now = DateTime.now();
+        final startOfDay = DateTime(now.year, now.month, now.day);
+        final endOfDay   = DateTime(now.year, now.month, now.day, 23, 59, 59);
+
+        for (var i = 0; i < loadedPatients.length; i++) {
+          final patientId = loadedPatients[i]['patientId'] as String;
+
+          final sub = _firestore
+              .collection('reminders')
+              .where('patientId', isEqualTo: patientId)
+              .where('time', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
+              .where('time', isLessThanOrEqualTo: Timestamp.fromDate(endOfDay))
+              .snapshots()
+              .listen((snapshot) {
+            if (!mounted) return;
+            final remindersList = snapshot.docs
+                .where((doc) => doc.data()['isSnoozed'] != true)
+                .map((doc) => doc.data()['title'] as String)
+                .toList();
+
+            // Find the matching patient entry by patientId and update its reminders.
+            final idx = patients.indexWhere((p) => p['patientId'] == patientId);
+            if (idx != -1) {
+              setState(() {
+                patients[idx]['reminders'] = remindersList;
+              });
+            }
+          });
+
+          _reminderSubscriptions.add(sub);
+        }
       } else {
         setState(() => _isLoading = false);
       }
@@ -189,6 +216,9 @@ class _CaretakerHomePageState extends State<CaretakerHomePage>
 
   @override
   void dispose() {
+    for (final sub in _reminderSubscriptions) {
+      sub.cancel();
+    }
     _animationController.dispose();
     super.dispose();
   }
