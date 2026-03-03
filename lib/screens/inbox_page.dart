@@ -4,7 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:async';
 import '../services/auth_service.dart';
 
-// ─── Models ──────────────────────────────────────────────────────────────────
+// ─── Models ───────────────────────────────────────────────────────────────────
 
 enum NotificationType {
   connectionRequest,
@@ -92,7 +92,8 @@ class InboxPage extends StatefulWidget {
   State<InboxPage> createState() => _InboxPageState();
 }
 
-class _InboxPageState extends State<InboxPage> {
+class _InboxPageState extends State<InboxPage>
+    with SingleTickerProviderStateMixin {
   final AuthService _authService = AuthService();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
@@ -100,15 +101,31 @@ class _InboxPageState extends State<InboxPage> {
   bool _isLoading = true;
   StreamSubscription? _subscription;
 
+  late AnimationController _animController;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
+
   @override
   void initState() {
     super.initState();
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    );
+    _fadeAnimation =
+        CurvedAnimation(parent: _animController, curve: Curves.easeOut);
+    _slideAnimation =
+        Tween<Offset>(begin: const Offset(0, 0.05), end: Offset.zero).animate(
+          CurvedAnimation(
+              parent: _animController, curve: Curves.easeOutCubic),
+        );
     _startListeners();
   }
 
   @override
   void dispose() {
     _subscription?.cancel();
+    _animController.dispose();
     super.dispose();
   }
 
@@ -134,7 +151,6 @@ class _InboxPageState extends State<InboxPage> {
         .listen((snapshot) async {
       if (!mounted) return;
 
-      // Mark unread as read BEFORE setState to prevent flicker
       final writeFutures = <Future>[];
       for (final doc in snapshot.docs) {
         if (doc.data()['isRead'] != true) {
@@ -147,7 +163,8 @@ class _InboxPageState extends State<InboxPage> {
         return NotificationItem.missedReminder(
           alertId: doc.id,
           message: data['message'] ?? 'A patient missed a reminder',
-          timestamp: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+          timestamp:
+          (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
           isRead: true,
         );
       }).toList();
@@ -156,16 +173,17 @@ class _InboxPageState extends State<InboxPage> {
         _notifications = items;
         _isLoading = false;
       });
+      _animController.forward();
 
       if (writeFutures.isNotEmpty) {
         try {
           await Future.wait(writeFutures);
         } catch (e) {
-          print('Warning: could not mark alerts as read: $e');
+          debugPrint('Warning: could not mark alerts as read: $e');
         }
       }
     }, onError: (e) {
-      print('Error listening for caretaker alerts: $e');
+      debugPrint('Error listening for caretaker alerts: $e');
       setState(() => _isLoading = false);
     });
   }
@@ -187,11 +205,13 @@ class _InboxPageState extends State<InboxPage> {
         final otherUserData = await _authService.getUserData(caretakerId);
         if (otherUserData != null) {
           items.add(NotificationItem.connectionRequest(
-            fromName: '${otherUserData['firstName']} ${otherUserData['lastName']}',
+            fromName:
+            '${otherUserData['firstName']} ${otherUserData['lastName']}',
             isCaretaker: false,
             requestId: doc.id,
             fromUserId: caretakerId,
-            timestamp: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+            timestamp:
+            (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
           ));
         }
       }
@@ -203,11 +223,27 @@ class _InboxPageState extends State<InboxPage> {
           _notifications = items;
           _isLoading = false;
         });
+        _animController.forward();
       }
     }, onError: (e) {
-      print('Error listening for connection requests: $e');
+      debugPrint('Error listening for connection requests: $e');
       setState(() => _isLoading = false);
     });
+  }
+
+  void _showSnack(String message, {bool success = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message,
+            style: const TextStyle(fontWeight: FontWeight.w600)),
+        backgroundColor:
+        success ? const Color(0xFF5A7A1A) : const Color(0xFF8D6E63),
+        behavior: SnackBarBehavior.floating,
+        shape:
+        RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
   }
 
   Future<void> _acceptRequest(NotificationItem notification) async {
@@ -219,22 +255,9 @@ class _InboxPageState extends State<InboxPage> {
         'status': 'accepted',
         'acceptedAt': FieldValue.serverTimestamp(),
       });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Connection request accepted!'),
-            backgroundColor: Color(0xFF8FA9C9),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
+      if (mounted) _showSnack('Connection accepted!', success: true);
     } catch (e) {
-      print('Error accepting request: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to accept: $e'), backgroundColor: Colors.red),
-        );
-      }
+      if (mounted) _showSnack('Failed to accept request');
     }
   }
 
@@ -244,79 +267,214 @@ class _InboxPageState extends State<InboxPage> {
           .collection('patient_caretaker_relationships')
           .doc(notification.requestId)
           .delete();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Connection request rejected'),
-            backgroundColor: Colors.grey,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
+      if (mounted) _showSnack('Request declined');
     } catch (e) {
-      print('Error rejecting request: $e');
+      debugPrint('Error rejecting request: $e');
     }
   }
 
   Future<void> _deleteAlert(NotificationItem notification) async {
     try {
       if (notification.alertId == null) return;
-      await _firestore.collection('caretaker_alerts').doc(notification.alertId).delete();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Alert dismissed'), backgroundColor: Colors.grey, behavior: SnackBarBehavior.floating),
-        );
-      }
+      await _firestore
+          .collection('caretaker_alerts')
+          .doc(notification.alertId)
+          .delete();
+      if (mounted) _showSnack('Alert dismissed');
     } catch (e) {
-      print('Error deleting alert: $e');
+      debugPrint('Error deleting alert: $e');
     }
+  }
+
+  String _formatTimestamp(DateTime timestamp) {
+    final diff = DateTime.now().difference(timestamp);
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    return DateFormat('MMM d, yyyy').format(timestamp);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5E6E8),
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildHeader(),
-            Expanded(
-              child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _notifications.isEmpty
-                  ? _buildEmpty()
-                  : _buildList(),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHeader() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      decoration: BoxDecoration(
-        color: const Color(0xFFE8C4C8),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 3)),
-        ],
-      ),
-      child: Row(
+      backgroundColor: const Color(0xFFFAF6F4),
+      body: Stack(
         children: [
-          IconButton(
-            onPressed: () => Navigator.pop(context),
-            icon: const Icon(Icons.arrow_back, color: Color(0xFF3D2C31)),
-            style: IconButton.styleFrom(backgroundColor: Colors.white.withOpacity(0.5), padding: const EdgeInsets.all(8)),
+          // Background blobs
+          Positioned(
+            top: -60,
+            right: -60,
+            child: Container(
+              width: 240,
+              height: 240,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFFE8C9C0).withOpacity(0.35),
+              ),
+            ),
           ),
-          const SizedBox(width: 12),
-          const Expanded(
-            child: Text('Inbox', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF3D2C31))),
+          Positioned(
+            bottom: -80,
+            left: -80,
+            child: Container(
+              width: 280,
+              height: 280,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFF6B8E23).withOpacity(0.07),
+              ),
+            ),
           ),
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(color: Colors.white.withOpacity(0.5), borderRadius: BorderRadius.circular(12)),
-            child: const Icon(Icons.inbox, color: Color(0xFFD47A8A), size: 24),
+
+          SafeArea(
+            child: Column(
+              children: [
+                // ── Top bar ──────────────────────────────────────
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                  child: Row(
+                    children: [
+                      GestureDetector(
+                        onTap: () => Navigator.pop(context),
+                        child: Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: [
+                              BoxShadow(
+                                color:
+                                const Color(0xFFB07A6E).withOpacity(0.12),
+                                blurRadius: 12,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: const Icon(
+                            Icons.arrow_back_ios_new_rounded,
+                            color: Color(0xFF5D4037),
+                            size: 18,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Row(
+                        children: [
+                          Image.asset(
+                            'assets/images/logo_no_text.png',
+                            width: 22,
+                            height: 22,
+                            errorBuilder: (_, __, ___) => const Icon(
+                              Icons.favorite_rounded,
+                              color: Color(0xFFD4A5A5),
+                              size: 20,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          RichText(
+                            text: const TextSpan(
+                              children: [
+                                TextSpan(
+                                  text: 'Cogni',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w300,
+                                    color: Color(0xFF5D4037),
+                                    letterSpacing: -0.5,
+                                  ),
+                                ),
+                                TextSpan(
+                                  text: 'Care',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF5D4037),
+                                    letterSpacing: -0.5,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const Spacer(),
+                      // Unread badge
+                      if (_notifications.any((n) => !n.isRead))
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE57373).withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            '${_notifications.where((n) => !n.isRead).length} new',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFFE57373),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+
+                // Page title
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Row(
+                    children: [
+                      const Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Inbox',
+                            style: TextStyle(
+                              fontSize: 26,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF3E2723),
+                              letterSpacing: -0.5,
+                            ),
+                          ),
+                          Text(
+                            'Notifications & requests',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Color(0xFF8D6E63),
+                              fontWeight: FontWeight.w400,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+
+                // ── Body ─────────────────────────────────────────
+                Expanded(
+                  child: _isLoading
+                      ? const Center(
+                    child: CircularProgressIndicator(
+                        color: Color(0xFF5A7A1A)),
+                  )
+                      : _notifications.isEmpty
+                      ? _buildEmpty()
+                      : FadeTransition(
+                    opacity: _fadeAnimation,
+                    child: SlideTransition(
+                      position: _slideAnimation,
+                      child: _buildList(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -324,45 +482,97 @@ class _InboxPageState extends State<InboxPage> {
   }
 
   Widget _buildEmpty() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.inbox, size: 80, color: const Color(0xFF8FA9C9).withOpacity(0.5)),
-          const SizedBox(height: 16),
-          const Text('All caught up!', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: Color(0xFF5A4046))),
-          const SizedBox(height: 8),
-          const Text('No notifications right now', style: TextStyle(fontSize: 14, color: Color(0xFF7A6A70))),
-        ],
+    return FadeTransition(
+      opacity: _fadeAnimation,
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(22),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFFB07A6E).withOpacity(0.10),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.inbox_outlined,
+                size: 32,
+                color: Color(0xFFD4A5A5),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'All caught up',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF3E2723),
+              ),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'No notifications right now',
+              style: TextStyle(
+                fontSize: 14,
+                color: Color(0xFF8D6E63),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildList() {
     return ListView.separated(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
       itemCount: _notifications.length,
       separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (context, index) => _buildNotificationItem(_notifications[index]),
+      itemBuilder: (_, i) => _buildCard(_notifications[i]),
     );
   }
 
-  Widget _buildNotificationItem(NotificationItem notification) {
+  Widget _buildCard(NotificationItem notification) {
     final isRequest = notification.type == NotificationType.connectionRequest;
-    final isMissedReminder = notification.type == NotificationType.missedReminder;
+    final isMissed = notification.type == NotificationType.missedReminder;
+    final isUnread = !notification.isRead;
+
+    // Icon + color per type
+    final IconData iconData = isMissed
+        ? Icons.alarm_off_rounded
+        : Icons.person_add_alt_1_rounded;
+    final Color iconBg = isMissed
+        ? const Color(0xFFFFEDED)
+        : const Color(0xFFF4E4E1);
+    final Color iconColor = isMissed
+        ? const Color(0xFFE57373)
+        : const Color(0xFFD4A5A5);
 
     return Container(
       decoration: BoxDecoration(
-        color: notification.isRead ? Colors.white : const Color(0xFFFFF9E6),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: notification.isRead ? const Color(0xFFE8C4C8) : const Color(0xFFFFD700),
-          width: 2,
-        ),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0, 3))],
+        border: isUnread
+            ? Border.all(color: const Color(0xFF5A7A1A).withOpacity(0.25), width: 1.5)
+            : null,
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFB07A6E).withOpacity(0.08),
+            blurRadius: 20,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -370,79 +580,127 @@ class _InboxPageState extends State<InboxPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Container(
-                  padding: const EdgeInsets.all(10),
+                  width: 44,
+                  height: 44,
                   decoration: BoxDecoration(
-                    color: isMissedReminder ? const Color(0xFFFFE0E0) : const Color(0xFF8FA9C9).withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(12),
+                    color: iconBg,
+                    borderRadius: BorderRadius.circular(13),
                   ),
-                  child: Icon(
-                    isMissedReminder ? Icons.warning_amber_rounded : Icons.person_add,
-                    color: isMissedReminder ? const Color(0xFFD47A8A) : const Color(0xFF8FA9C9),
-                    size: 24,
-                  ),
+                  child: Icon(iconData, color: iconColor, size: 22),
                 ),
-                const SizedBox(width: 16),
+                const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Expanded(
                             child: Text(
                               notification.title,
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: notification.isRead ? FontWeight.w600 : FontWeight.bold,
-                                color: const Color(0xFF3D2C31),
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF3E2723),
                               ),
                             ),
                           ),
-                          if (!notification.isRead)
-                            Container(width: 10, height: 10, decoration: const BoxDecoration(color: Color(0xFFFF4757), shape: BoxShape.circle)),
+                          if (isUnread)
+                            Container(
+                              width: 8,
+                              height: 8,
+                              decoration: const BoxDecoration(
+                                color: Color(0xFF5A7A1A),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
                         ],
                       ),
-                      const SizedBox(height: 8),
-                      Text(notification.message, style: const TextStyle(fontSize: 14, color: Color(0xFF5A4046))),
-                      const SizedBox(height: 8),
-                      Text(_formatTimestamp(notification.timestamp), style: const TextStyle(fontSize: 12, color: Color(0xFF7A6A70), fontStyle: FontStyle.italic)),
+                      const SizedBox(height: 4),
+                      Text(
+                        notification.message,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: Color(0xFF8D6E63),
+                          height: 1.4,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        _formatTimestamp(notification.timestamp),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: const Color(0xFF8D6E63).withOpacity(0.6),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
                     ],
                   ),
                 ),
               ],
             ),
+
+            // Accept / reject row
             if (isRequest) ...[
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
               Row(
                 children: [
                   Expanded(
-                    child: ElevatedButton(
-                      onPressed: () => _acceptRequest(notification),
-                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF8FA9C9), foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                      child: const Text('Accept'),
+                    child: SizedBox(
+                      height: 42,
+                      child: ElevatedButton(
+                        onPressed: () => _acceptRequest(notification),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF5A7A1A),
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                          elevation: 0,
+                        ),
+                        child: const Text('Accept',
+                            style: TextStyle(
+                                fontSize: 14, fontWeight: FontWeight.w700)),
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 10),
                   Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => _rejectRequest(notification),
-                      style: OutlinedButton.styleFrom(foregroundColor: const Color(0xFF3D2C31), side: const BorderSide(color: Color(0xFF3D2C31)), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                      child: const Text('Reject'),
+                    child: SizedBox(
+                      height: 42,
+                      child: OutlinedButton(
+                        onPressed: () => _rejectRequest(notification),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF8D6E63),
+                          side: const BorderSide(
+                              color: Color(0xFFEDE5E2), width: 1.5),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: const Text('Decline',
+                            style: TextStyle(
+                                fontSize: 14, fontWeight: FontWeight.w600)),
+                      ),
                     ),
                   ),
                 ],
               ),
             ],
-            if (isMissedReminder) ...[
-              const SizedBox(height: 12),
+
+            // Dismiss row for missed reminders
+            if (isMissed) ...[
+              const SizedBox(height: 10),
               Align(
                 alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  onPressed: () => _deleteAlert(notification),
-                  icon: const Icon(Icons.delete_outline, size: 18),
-                  label: const Text('Dismiss'),
-                  style: TextButton.styleFrom(foregroundColor: const Color(0xFF7A6A70)),
+                child: GestureDetector(
+                  onTap: () => _deleteAlert(notification),
+                  child: Text(
+                    'Dismiss',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF8D6E63).withOpacity(0.7),
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -450,14 +708,5 @@ class _InboxPageState extends State<InboxPage> {
         ),
       ),
     );
-  }
-
-  String _formatTimestamp(DateTime timestamp) {
-    final now = DateTime.now();
-    final diff = now.difference(timestamp);
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    if (diff.inDays < 7) return '${diff.inDays}d ago';
-    return DateFormat('MMM dd, yyyy').format(timestamp);
   }
 }

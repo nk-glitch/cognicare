@@ -15,7 +15,8 @@ class AccountSetupPage extends StatefulWidget {
   State<AccountSetupPage> createState() => _AccountSetupPageState();
 }
 
-class _AccountSetupPageState extends State<AccountSetupPage> {
+class _AccountSetupPageState extends State<AccountSetupPage>
+    with SingleTickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
   final _phoneController = TextEditingController();
   final _addressController = TextEditingController();
@@ -24,7 +25,31 @@ class _AccountSetupPageState extends State<AccountSetupPage> {
   final _authService = AuthService();
 
   bool _isLoading = false;
-  final int _totalSteps = 4;
+
+  late AnimationController _animController;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    );
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+          parent: _animController,
+          curve: const Interval(0.0, 0.6, curve: Curves.easeOut)),
+    );
+    _slideAnimation =
+        Tween<Offset>(begin: const Offset(0, 0.06), end: Offset.zero).animate(
+          CurvedAnimation(
+              parent: _animController,
+              curve: const Interval(0.1, 0.8, curve: Curves.easeOutCubic)),
+        );
+    _animController.forward();
+  }
 
   @override
   void dispose() {
@@ -32,7 +57,17 @@ class _AccountSetupPageState extends State<AccountSetupPage> {
     _addressController.dispose();
     _dobController.dispose();
     _emergencyContactController.dispose();
+    _animController.dispose();
     super.dispose();
+  }
+
+  int get _filledCount {
+    int count = 0;
+    if (_phoneController.text.isNotEmpty) count++;
+    if (_addressController.text.isNotEmpty) count++;
+    if (_dobController.text.isNotEmpty) count++;
+    if (_emergencyContactController.text.isNotEmpty) count++;
+    return count;
   }
 
   Future<void> _selectDate() async {
@@ -44,15 +79,11 @@ class _AccountSetupPageState extends State<AccountSetupPage> {
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
-            colorScheme: ColorScheme.light(
-              primary: const Color(0xFF6B8E23),
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF5A7A1A),
               onPrimary: Colors.white,
-              surface: const Color(0xFFF4E4E1),
-              onSurface: const Color(0xFF5D4037),
-            ),
-            textTheme: TextTheme(
-              headlineMedium: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-              bodyLarge: TextStyle(fontSize: 18),
+              surface: Color(0xFFFAF6F4),
+              onSurface: Color(0xFF3E2723),
             ),
           ),
           child: child!,
@@ -62,16 +93,40 @@ class _AccountSetupPageState extends State<AccountSetupPage> {
 
     if (picked != null) {
       setState(() {
-        _dobController.text = '${picked.month}/${picked.day}/${picked.year}';
+        _dobController.text =
+        '${picked.month}/${picked.day}/${picked.year}';
       });
     }
   }
 
-  Future<void> _handleContinue() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
+  void _showSnack(String message, {bool success = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(children: [
+          Icon(
+            success ? Icons.check_circle_outline_rounded : Icons.error_outline_rounded,
+            color: Colors.white,
+            size: 20,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(message,
+                style: const TextStyle(
+                    fontSize: 15, fontWeight: FontWeight.w600)),
+          ),
+        ]),
+        backgroundColor:
+        success ? const Color(0xFF5A7A1A) : Colors.red.shade700,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(16),
+        duration: Duration(seconds: success ? 2 : 3),
+      ),
+    );
+  }
 
+  Future<void> _handleContinue() async {
+    if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
 
     try {
@@ -80,313 +135,345 @@ class _AccountSetupPageState extends State<AccountSetupPage> {
         address: _addressController.text.trim(),
         dateOfBirth: _dobController.text.trim(),
         emergencyContact: _emergencyContactController.text.trim(),
-        emergencyContactNumber: '', // Not collected anymore
+        emergencyContactNumber: '',
         phone: _phoneController.text.trim(),
       );
 
       if (mounted) {
         if (result['success']) {
-          // Success feedback
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                children: [
-                  Icon(Icons.check_circle, color: Colors.white, size: 28),
-                  SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'Profile setup complete!',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ],
-              ),
-              backgroundColor: Colors.green.shade600,
-              duration: Duration(seconds: 2),
-            ),
-          );
-
-          await Future.delayed(Duration(milliseconds: 500));
-
+          _showSnack('Profile setup complete!', success: true);
+          await Future.delayed(const Duration(milliseconds: 500));
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (_) => const PatientHomePage()),
           );
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                children: [
-                  Icon(Icons.error_outline, color: Colors.white),
-                  SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      result['message'],
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ],
-              ),
-              backgroundColor: Colors.red.shade600,
-              duration: Duration(seconds: 4),
-            ),
-          );
+          _showSnack(result['message']);
         }
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                Icon(Icons.error_outline, color: Colors.white),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Setup failed. Please try again.',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ],
-            ),
-            backgroundColor: Colors.red.shade600,
-            duration: Duration(seconds: 4),
-          ),
-        );
-      }
+    } catch (_) {
+      if (mounted) _showSnack('Setup failed. Please try again.');
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF4E4E1),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFFF4E4E1),
-        elevation: 0,
-        leading: Container(
-          margin: EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Color(0xFF8D6E63), width: 2),
-          ),
-          child: IconButton(
-            icon: Icon(Icons.arrow_back, color: Color(0xFF5D4037), size: 28),
-            onPressed: () {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (_) => const SignUpPage()),
-              );
-            },
-          ),
-        ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Set Up Your Profile',
-              style: TextStyle(
-                color: const Color(0xFF5D4037),
-                fontWeight: FontWeight.bold,
-                fontSize: 24,
+      backgroundColor: const Color(0xFFFAF6F4),
+      body: Stack(
+        children: [
+          // Decorative blobs — mirror the login page atmosphere
+          Positioned(
+            top: -60,
+            right: -60,
+            child: Container(
+              width: 260,
+              height: 260,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFFE8C9C0).withOpacity(0.35),
               ),
             ),
-            SizedBox(height: 4),
-            // Progress indicator
-            Row(
-              children: List.generate(_totalSteps, (index) {
-                bool isCompleted = false;
-                if (index == 0 && _phoneController.text.isNotEmpty) isCompleted = true;
-                if (index == 1 && _addressController.text.isNotEmpty) isCompleted = true;
-                if (index == 2 && _dobController.text.isNotEmpty) isCompleted = true;
-                if (index == 3 && _emergencyContactController.text.isNotEmpty) isCompleted = true;
-
-                return Expanded(
-                  child: Container(
-                    height: 8,
-                    margin: EdgeInsets.only(right: index < _totalSteps - 1 ? 4 : 0),
-                    decoration: BoxDecoration(
-                      color: isCompleted ? Color(0xFF6B8E23) : Color(0xFFD4A5A5).withOpacity(0.3),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
-                );
-              }),
-            ),
-          ],
-        ),
-        toolbarHeight: 80,
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Information box
-                Container(
-                  padding: EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.blue.shade300, width: 3),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.info, color: Colors.blue.shade700, size: 32),
-                      SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'This helps your caretakers assist you better',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.blue.shade900,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 32),
-
-                // Phone Number
-                _buildTextField(
-                  controller: _phoneController,
-                  label: 'Your Phone Number',
-                  icon: Icons.phone,
-                  hint: '(555) 123-4567',
-                  keyboardType: TextInputType.phone,
-                  stepNumber: 1,
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return '⚠️ Please enter your phone number';
-                    }
-                    return null;
-                  },
-                ),
-
-                const SizedBox(height: 28),
-
-                // Address
-                _buildTextField(
-                  controller: _addressController,
-                  label: 'Your Home Address',
-                  icon: Icons.home,
-                  hint: '123 Main Street, City, State',
-                  maxLines: 2,
-                  stepNumber: 2,
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return '⚠️ Please enter your address';
-                    }
-                    return null;
-                  },
-                ),
-
-                const SizedBox(height: 28),
-
-                // Date of Birth
-                _buildDateField(),
-
-                const SizedBox(height: 28),
-
-                // Emergency Contact Name
-                _buildTextField(
-                  controller: _emergencyContactController,
-                  label: 'Emergency Contact Name',
-                  icon: Icons.person,
-                  hint: 'Family member or friend',
-                  stepNumber: 4,
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return '⚠️ Please enter emergency contact name';
-                    }
-                    return null;
-                  },
-                ),
-
-                const SizedBox(height: 48),
-
-                // Continue Button
-                SizedBox(
-                  width: double.infinity,
-                  height: 70,
-                  child: ElevatedButton(
-                    onPressed: _isLoading ? null : _handleContinue,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF6B8E23),
-                      foregroundColor: Colors.white,
-                      disabledBackgroundColor: Colors.grey,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      elevation: 6,
-                      shadowColor: Colors.black.withOpacity(0.3),
-                    ),
-                    child: _isLoading
-                        ? Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        SizedBox(
-                          height: 28,
-                          width: 28,
-                          child: CircularProgressIndicator(
-                            color: Colors.white,
-                            strokeWidth: 3,
-                          ),
-                        ),
-                        SizedBox(width: 16),
-                        Text(
-                          'Saving...',
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    )
-                        : Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.check_circle, size: 28),
-                        SizedBox(width: 12),
-                        Text(
-                          'Complete Setup',
-                          style: TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 1,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 20),
-              ],
+          ),
+          Positioned(
+            bottom: -80,
+            left: -80,
+            child: Container(
+              width: 300,
+              height: 300,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFF6B8E23).withOpacity(0.08),
+              ),
             ),
           ),
-        ),
+
+          SafeArea(
+            child: FadeTransition(
+              opacity: _fadeAnimation,
+              child: SlideTransition(
+                position: _slideAnimation,
+                child: Column(
+                  children: [
+                    // ── App bar ─────────────────────────────────────────
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                      child: Row(
+                        children: [
+                          // Back button
+                          GestureDetector(
+                            onTap: () => Navigator.pushReplacement(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) => const SignUpPage()),
+                            ),
+                            child: Container(
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(12),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFFB07A6E)
+                                        .withOpacity(0.12),
+                                    blurRadius: 12,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: const Icon(
+                                Icons.arrow_back_ios_new_rounded,
+                                color: Color(0xFF5D4037),
+                                size: 18,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Set Up Your Profile',
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF3E2723),
+                                    letterSpacing: -0.5,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                // Progress bar
+                                AnimatedBuilder(
+                                  animation: _animController,
+                                  builder: (_, __) => Row(
+                                    children: List.generate(4, (i) {
+                                      final filled = i < _filledCount;
+                                      return Expanded(
+                                        child: AnimatedContainer(
+                                          duration: const Duration(
+                                              milliseconds: 300),
+                                          height: 4,
+                                          margin: EdgeInsets.only(
+                                              right: i < 3 ? 4 : 0),
+                                          decoration: BoxDecoration(
+                                            color: filled
+                                                ? const Color(0xFF5A7A1A)
+                                                : const Color(0xFFD4A5A5)
+                                                .withOpacity(0.3),
+                                            borderRadius:
+                                            BorderRadius.circular(2),
+                                          ),
+                                        ),
+                                      );
+                                    }),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          // Step counter badge
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(20),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFFB07A6E)
+                                      .withOpacity(0.10),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                            child: AnimatedBuilder(
+                              animation: _animController,
+                              builder: (_, __) => Text(
+                                '$_filledCount / 4',
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF5A7A1A),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    // ── Scrollable body ────────────────────────────────
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Form(
+                          key: _formKey,
+                          onChanged: () => setState(() {}),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Info banner
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 13),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF5A7A1A)
+                                      .withOpacity(0.08),
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(
+                                    color: const Color(0xFF5A7A1A)
+                                        .withOpacity(0.20),
+                                    width: 1.5,
+                                  ),
+                                ),
+                                child: Row(children: [
+                                  const Icon(
+                                    Icons.info_outline_rounded,
+                                    color: Color(0xFF5A7A1A),
+                                    size: 18,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      'This helps your caretakers assist you better.',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: const Color(0xFF5A7A1A)
+                                            .withOpacity(0.9),
+                                        fontWeight: FontWeight.w500,
+                                        height: 1.4,
+                                      ),
+                                    ),
+                                  ),
+                                ]),
+                              ),
+
+                              const SizedBox(height: 24),
+
+                              // ── Form card ──────────────────────────────
+                              Container(
+                                padding: const EdgeInsets.all(24),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(24),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFFB07A6E)
+                                          .withOpacity(0.10),
+                                      blurRadius: 40,
+                                      offset: const Offset(0, 12),
+                                    ),
+                                  ],
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    _buildField(
+                                      controller: _phoneController,
+                                      label: 'Phone number',
+                                      hint: '(555) 123-4567',
+                                      icon: Icons.phone_outlined,
+                                      keyboardType: TextInputType.phone,
+                                      validator: (v) => (v == null || v.isEmpty)
+                                          ? 'Phone number is required'
+                                          : null,
+                                    ),
+                                    const SizedBox(height: 20),
+                                    _buildField(
+                                      controller: _addressController,
+                                      label: 'Home address',
+                                      hint: '123 Main Street, City, State',
+                                      icon: Icons.home_outlined,
+                                      maxLines: 2,
+                                      validator: (v) => (v == null || v.isEmpty)
+                                          ? 'Address is required'
+                                          : null,
+                                    ),
+                                    const SizedBox(height: 20),
+                                    _buildDateField(),
+                                    const SizedBox(height: 20),
+                                    _buildField(
+                                      controller: _emergencyContactController,
+                                      label: 'Emergency contact name',
+                                      hint: 'Family member or friend',
+                                      icon: Icons.person_outline_rounded,
+                                      validator: (v) => (v == null || v.isEmpty)
+                                          ? 'Emergency contact is required'
+                                          : null,
+                                    ),
+                                  ],
+                                ),
+                              ),
+
+                              const SizedBox(height: 24),
+
+                              // ── CTA button ─────────────────────────────
+                              SizedBox(
+                                width: double.infinity,
+                                height: 54,
+                                child: ElevatedButton(
+                                  onPressed:
+                                  _isLoading ? null : _handleContinue,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF5A7A1A),
+                                    foregroundColor: Colors.white,
+                                    disabledBackgroundColor:
+                                    const Color(0xFF5A7A1A)
+                                        .withOpacity(0.5),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                    elevation: 0,
+                                  ),
+                                  child: _isLoading
+                                      ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      color: Colors.white,
+                                      strokeWidth: 2.5,
+                                    ),
+                                  )
+                                      : const Text(
+                                    'Complete Setup',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 0.3,
+                                    ),
+                                  ),
+                                ),
+                              ),
+
+                              const SizedBox(height: 32),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildTextField({
+  Widget _buildField({
     required TextEditingController controller,
     required String label,
-    required IconData icon,
     required String hint,
-    required int stepNumber,
+    required IconData icon,
     bool obscureText = false,
     TextInputType? keyboardType,
     int maxLines = 1,
@@ -395,133 +482,67 @@ class _AccountSetupPageState extends State<AccountSetupPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Label with step number and icon
-        Container(
-          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.7),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: Color(0xFFD4A5A5),
-              width: 2,
-            ),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  color: Color(0xFF6B8E23),
-                  shape: BoxShape.circle,
-                ),
-                child: Center(
-                  child: Text(
-                    '$stepNumber',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18,
-                    ),
-                  ),
-                ),
-              ),
-              SizedBox(width: 10),
-              Icon(
-                icon,
-                color: const Color(0xFF5D4037),
-                size: 26,
-              ),
-              SizedBox(width: 10),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: const Color(0xFF5D4037),
-                ),
-              ),
-            ],
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF5D4037),
+            letterSpacing: 0.1,
           ),
         ),
-
-        const SizedBox(height: 12),
-
-        // Text field with high contrast
-        Container(
-          decoration: BoxDecoration(
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 8,
-                offset: Offset(0, 4),
-              ),
-            ],
+        const SizedBox(height: 7),
+        TextFormField(
+          controller: controller,
+          obscureText: obscureText,
+          keyboardType: keyboardType,
+          maxLines: maxLines,
+          validator: validator,
+          style: const TextStyle(
+            fontSize: 15,
+            color: Color(0xFF2C2C2C),
+            fontWeight: FontWeight.w500,
           ),
-          child: TextFormField(
-            controller: controller,
-            obscureText: obscureText,
-            keyboardType: keyboardType,
-            maxLines: maxLines,
-            validator: validator,
-            style: const TextStyle(
-              fontSize: 22,
-              color: Color(0xFF212121),
+          decoration: InputDecoration(
+            hintText: hint,
+            hintStyle: const TextStyle(
+              fontSize: 15,
+              color: Color(0xFFBDB0AC),
+              fontWeight: FontWeight.w400,
+            ),
+            prefixIcon: Icon(icon, color: const Color(0xFFD4A5A5), size: 20),
+            filled: true,
+            fillColor: const Color(0xFFFAF6F4),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide:
+              const BorderSide(color: Color(0xFFEDE5E2), width: 1.5),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide:
+              const BorderSide(color: Color(0xFFEDE5E2), width: 1.5),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide:
+              const BorderSide(color: Color(0xFF6B8E23), width: 2),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: Colors.red.shade400, width: 1.5),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: Colors.red.shade400, width: 2),
+            ),
+            errorStyle: TextStyle(
+              fontSize: 12,
               fontWeight: FontWeight.w500,
+              color: Colors.red.shade600,
             ),
-            decoration: InputDecoration(
-              hintText: hint,
-              hintStyle: TextStyle(
-                fontSize: 20,
-                color: Colors.grey.shade600,
-              ),
-              filled: true,
-              fillColor: Colors.white,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(
-                  color: const Color(0xFF8D6E63),
-                  width: 3,
-                ),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(
-                  color: const Color(0xFF8D6E63),
-                  width: 3,
-                ),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(
-                  color: const Color(0xFF6B8E23),
-                  width: 4,
-                ),
-              ),
-              errorBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(
-                  color: Colors.red.shade700,
-                  width: 3,
-                ),
-              ),
-              focusedErrorBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(
-                  color: Colors.red.shade700,
-                  width: 4,
-                ),
-              ),
-              errorStyle: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: Colors.red.shade700,
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 24,
-                vertical: 22,
-              ),
-            ),
+            contentPadding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 15),
           ),
         ),
       ],
@@ -532,149 +553,77 @@ class _AccountSetupPageState extends State<AccountSetupPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Label with step number and icon
-        Container(
-          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.7),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: Color(0xFFD4A5A5),
-              width: 2,
-            ),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  color: Color(0xFF6B8E23),
-                  shape: BoxShape.circle,
-                ),
-                child: Center(
-                  child: Text(
-                    '3',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18,
-                    ),
-                  ),
-                ),
-              ),
-              SizedBox(width: 10),
-              Icon(
-                Icons.cake,
-                color: const Color(0xFF5D4037),
-                size: 26,
-              ),
-              SizedBox(width: 10),
-              Text(
-                'Your Date of Birth',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: const Color(0xFF5D4037),
-                ),
-              ),
-            ],
+        const Text(
+          'Date of birth',
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF5D4037),
+            letterSpacing: 0.1,
           ),
         ),
-
-        const SizedBox(height: 12),
-
-        // Date picker field
-        Container(
-          decoration: BoxDecoration(
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 8,
-                offset: Offset(0, 4),
-              ),
-            ],
+        const SizedBox(height: 7),
+        TextFormField(
+          controller: _dobController,
+          readOnly: true,
+          onTap: _selectDate,
+          validator: (v) => (v == null || v.isEmpty)
+              ? 'Date of birth is required'
+              : null,
+          style: const TextStyle(
+            fontSize: 15,
+            color: Color(0xFF2C2C2C),
+            fontWeight: FontWeight.w500,
           ),
-          child: TextFormField(
-            controller: _dobController,
-            readOnly: true,
-            onTap: _selectDate,
-            validator: (value) {
-              if (value == null || value.isEmpty) {
-                return '⚠️ Please select your date of birth';
-              }
-              return null;
-            },
-            style: const TextStyle(
-              fontSize: 22,
-              color: Color(0xFF212121),
+          decoration: InputDecoration(
+            hintText: 'Tap to select date',
+            hintStyle: const TextStyle(
+              fontSize: 15,
+              color: Color(0xFFBDB0AC),
+              fontWeight: FontWeight.w400,
+            ),
+            prefixIcon: const Icon(
+              Icons.cake_outlined,
+              color: Color(0xFFD4A5A5),
+              size: 20,
+            ),
+            suffixIcon: const Icon(
+              Icons.calendar_today_outlined,
+              color: Color(0xFFBDB0AC),
+              size: 18,
+            ),
+            filled: true,
+            fillColor: const Color(0xFFFAF6F4),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide:
+              const BorderSide(color: Color(0xFFEDE5E2), width: 1.5),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide:
+              const BorderSide(color: Color(0xFFEDE5E2), width: 1.5),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide:
+              const BorderSide(color: Color(0xFF6B8E23), width: 2),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: Colors.red.shade400, width: 1.5),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: Colors.red.shade400, width: 2),
+            ),
+            errorStyle: TextStyle(
+              fontSize: 12,
               fontWeight: FontWeight.w500,
+              color: Colors.red.shade600,
             ),
-            decoration: InputDecoration(
-              hintText: 'Tap to select date',
-              hintStyle: TextStyle(
-                fontSize: 20,
-                color: Colors.grey.shade600,
-              ),
-              suffixIcon: Container(
-                margin: EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Color(0xFF6B8E23),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(
-                  Icons.calendar_today,
-                  color: Colors.white,
-                  size: 28,
-                ),
-              ),
-              filled: true,
-              fillColor: Colors.white,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(
-                  color: const Color(0xFF8D6E63),
-                  width: 3,
-                ),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(
-                  color: const Color(0xFF8D6E63),
-                  width: 3,
-                ),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(
-                  color: const Color(0xFF6B8E23),
-                  width: 4,
-                ),
-              ),
-              errorBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(
-                  color: Colors.red.shade700,
-                  width: 3,
-                ),
-              ),
-              focusedErrorBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(
-                  color: Colors.red.shade700,
-                  width: 4,
-                ),
-              ),
-              errorStyle: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: Colors.red.shade700,
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 24,
-                vertical: 22,
-              ),
-            ),
+            contentPadding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 15),
           ),
         ),
       ],

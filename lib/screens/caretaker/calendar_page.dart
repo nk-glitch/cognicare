@@ -38,7 +38,6 @@ class _CalendarPageState extends State<CalendarPage> {
     setState(() => _isLoading = true);
 
     try {
-      // Get reminders for this patient
       final snapshot = await _firestore
           .collection('reminders')
           .where('patientId', isEqualTo: widget.patientId)
@@ -51,14 +50,12 @@ class _CalendarPageState extends State<CalendarPage> {
         final data = doc.data();
         final timestamp = data['time'] as Timestamp?;
 
-        // Skip snoozed reminders
         if (data['isSnoozed'] == true) {
           continue;
         }
 
         if (timestamp != null) {
           final date = timestamp.toDate();
-          // Normalize to midnight for grouping by day
           final normalizedDate = DateTime(date.year, date.month, date.day);
 
           final event = {
@@ -106,10 +103,19 @@ class _CalendarPageState extends State<CalendarPage> {
     await _loadReminders();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Calendar refreshed'),
-          backgroundColor: Color(0xFF8FA9C9),
-          duration: Duration(seconds: 1),
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.refresh, color: Colors.white),
+              SizedBox(width: 12),
+              Text(
+                'Calendar refreshed',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          backgroundColor: Colors.green.shade600,
+          duration: Duration(seconds: 2),
         ),
       );
     }
@@ -127,11 +133,20 @@ class _CalendarPageState extends State<CalendarPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              !currentStatus ? 'Reminder marked as complete' : 'Reminder marked as incomplete',
+            content: Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    !currentStatus ? 'Marked as complete' : 'Marked as incomplete',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
             ),
-            backgroundColor: const Color(0xFF8FA9C9),
-            duration: const Duration(seconds: 2),
+            backgroundColor: Colors.green.shade600,
+            duration: Duration(seconds: 2),
           ),
         );
       }
@@ -147,9 +162,18 @@ class _CalendarPageState extends State<CalendarPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Reminder deleted'),
-            backgroundColor: Color(0xFF8FA9C9),
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.delete, color: Colors.white),
+                SizedBox(width: 12),
+                Text(
+                  'Reminder deleted',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.red.shade600,
             duration: Duration(seconds: 2),
           ),
         );
@@ -162,38 +186,63 @@ class _CalendarPageState extends State<CalendarPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5E6E8),
+      backgroundColor: const Color(0xFFF4E4E1),
       appBar: AppBar(
-        backgroundColor: const Color(0xFFE8C4C8),
+        backgroundColor: const Color(0xFFF4E4E1),
         elevation: 0,
-        leading: IconButton(
-          onPressed: () => Navigator.pop(context),
-          icon: const Icon(Icons.arrow_back, color: Color(0xFF3D2C31)),
-        ),
-        title: const Text(
-          'Calendar',
-          style: TextStyle(
-            color: Color(0xFF3D2C31),
-            fontWeight: FontWeight.bold,
+        leading: Container(
+          margin: EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Color(0xFF8D6E63), width: 2),
+          ),
+          child: IconButton(
+            icon: Icon(Icons.arrow_back, color: Color(0xFF5D4037), size: 28),
+            onPressed: () => Navigator.pop(context),
           ),
         ),
+        title: Text(
+          'My Calendar',
+          style: TextStyle(
+            color: const Color(0xFF5D4037),
+            fontWeight: FontWeight.bold,
+            fontSize: 24,
+          ),
+        ),
+        centerTitle: true,
         actions: [
-          IconButton(
-            onPressed: _handleRefresh,
-            icon: const Icon(Icons.refresh, color: Color(0xFF3D2C31)),
-            tooltip: 'Refresh',
+          Container(
+            margin: EdgeInsets.only(right: 12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Color(0xFF8D6E63), width: 2),
+            ),
+            child: IconButton(
+              onPressed: _handleRefresh,
+              icon: Icon(Icons.refresh, color: Color(0xFF5D4037), size: 24),
+              tooltip: 'Refresh',
+            ),
           ),
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? Center(
+        child: CircularProgressIndicator(
+          color: Color(0xFFD4A5A5),
+          strokeWidth: 4,
+        ),
+      )
           : RefreshIndicator(
         onRefresh: _handleRefresh,
-        color: const Color(0xFF8FA9C9),
+        color: Color(0xFFD4A5A5),
         child: Column(
           children: [
             _buildCalendar(),
-            const SizedBox(height: 8),
+            SizedBox(height: 16),
+            _buildSelectedDateHeader(),
+            SizedBox(height: 12),
             Expanded(
               child: _buildEventList(),
             ),
@@ -205,14 +254,16 @@ class _CalendarPageState extends State<CalendarPage> {
 
   Widget _buildCalendar() {
     return Container(
-      margin: const EdgeInsets.all(16),
+      margin: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Color(0xFFD4A5A5), width: 3),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 12,
+            color: Color(0xFFD4A5A5).withOpacity(0.2),
+            blurRadius: 16,
             offset: const Offset(0, 4),
           ),
         ],
@@ -225,37 +276,75 @@ class _CalendarPageState extends State<CalendarPage> {
         selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
         eventLoader: _getEventsForDay,
         startingDayOfWeek: StartingDayOfWeek.sunday,
+        daysOfWeekStyle: DaysOfWeekStyle(
+          weekdayStyle: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF8D6E63),
+          ),
+          weekendStyle: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFFD4A5A5),
+          ),
+        ),
         calendarStyle: CalendarStyle(
           outsideDaysVisible: false,
+          defaultTextStyle: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF5D4037),
+          ),
+          weekendTextStyle: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFFD4A5A5),
+          ),
           todayDecoration: BoxDecoration(
-            color: const Color(0xFF8FA9C9).withOpacity(0.5),
+            color: Color(0xFF6B8E23).withOpacity(0.3),
+            shape: BoxShape.circle,
+            border: Border.all(color: Color(0xFF6B8E23), width: 2),
+          ),
+          todayTextStyle: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF5D4037),
+          ),
+          selectedDecoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFFD4A5A5), Color(0xFFE8B5B5)],
+            ),
             shape: BoxShape.circle,
           ),
-          selectedDecoration: const BoxDecoration(
-            color: Color(0xFF8FA9C9),
-            shape: BoxShape.circle,
+          selectedTextStyle: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
           ),
-          markerDecoration: const BoxDecoration(
-            color: Color(0xFFE8C4C8),
+          markerDecoration: BoxDecoration(
+            color: Color(0xFF6B8E23),
             shape: BoxShape.circle,
           ),
           markersMaxCount: 3,
+          markerSize: 6,
         ),
         headerStyle: HeaderStyle(
-          formatButtonVisible: true,
+          formatButtonVisible: false,
           titleCentered: true,
-          formatButtonDecoration: BoxDecoration(
-            color: const Color(0xFFE8C4C8),
-            borderRadius: BorderRadius.circular(12),
+          leftChevronIcon: Icon(
+            Icons.chevron_left,
+            color: Color(0xFF5D4037),
+            size: 28,
           ),
-          formatButtonTextStyle: const TextStyle(
-            color: Color(0xFF3D2C31),
-            fontWeight: FontWeight.w600,
+          rightChevronIcon: Icon(
+            Icons.chevron_right,
+            color: Color(0xFF5D4037),
+            size: 28,
           ),
-          titleTextStyle: const TextStyle(
-            fontSize: 18,
+          titleTextStyle: TextStyle(
+            fontSize: 20,
             fontWeight: FontWeight.bold,
-            color: Color(0xFF3D2C31),
+            color: Color(0xFF5D4037),
           ),
         ),
         onDaySelected: _onDaySelected,
@@ -273,24 +362,99 @@ class _CalendarPageState extends State<CalendarPage> {
     );
   }
 
+  Widget _buildSelectedDateHeader() {
+    final dateStr = DateFormat('EEEE, MMMM dd').format(_selectedDay ?? _focusedDay);
+    final eventCount = _selectedEvents.length;
+
+    return Container(
+      margin: EdgeInsets.symmetric(horizontal: 20),
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Color(0xFFD4A5A5), width: 2),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFFD4A5A5), Color(0xFFE8B5B5)],
+              ),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(
+              Icons.calendar_today,
+              color: Colors.white,
+              size: 22,
+            ),
+          ),
+          SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  dateStr,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF5D4037),
+                  ),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  eventCount == 0
+                      ? 'No reminders'
+                      : '$eventCount ${eventCount == 1 ? 'reminder' : 'reminders'}',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Color(0xFF8D6E63),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildEventList() {
     if (_selectedEvents.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.event_busy,
-              size: 64,
-              color: const Color(0xFF8FA9C9).withOpacity(0.5),
+            Container(
+              padding: EdgeInsets.all(32),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.event_busy,
+                size: 64,
+                color: Color(0xFFD4A5A5),
+              ),
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: 24),
             Text(
-              'No reminders for this day',
+              'No reminders today',
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF5D4037),
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Enjoy your free time!',
               style: TextStyle(
                 fontSize: 16,
-                color: const Color(0xFF3D2C31).withOpacity(0.6),
-                fontWeight: FontWeight.w500,
+                color: Color(0xFF8D6E63),
               ),
             ),
           ],
@@ -299,7 +463,7 @@ class _CalendarPageState extends State<CalendarPage> {
     }
 
     return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
       itemCount: _selectedEvents.length,
       itemBuilder: (context, index) {
         final event = _selectedEvents[index];
@@ -314,21 +478,19 @@ class _CalendarPageState extends State<CalendarPage> {
     final isCompleted = event['completed'] as bool;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        color: isCompleted ? Color(0xFFF0F0F0) : Colors.white,
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: isCompleted
-              ? const Color(0xFF8FA9C9).withOpacity(0.3)
-              : const Color(0xFFE8C4C8),
-          width: 2,
+          color: isCompleted ? Color(0xFF6B8E23) : Color(0xFFD4A5A5),
+          width: 3,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+            color: (isCompleted ? Color(0xFF6B8E23) : Color(0xFFD4A5A5)).withOpacity(0.15),
+            blurRadius: 12,
+            offset: const Offset(0, 3),
           ),
         ],
       ),
@@ -336,34 +498,29 @@ class _CalendarPageState extends State<CalendarPage> {
         color: Colors.transparent,
         child: InkWell(
           onTap: () => _showEventDetails(event),
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(18),
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(18),
             child: Row(
               children: [
-                // Checkbox for completion
-                InkWell(
-                  onTap: () => _toggleReminderComplete(
-                    event['id'],
-                    isCompleted,
-                  ),
+                // Checkbox
+                GestureDetector(
+                  onTap: () => _toggleReminderComplete(event['id'], isCompleted),
                   child: Container(
-                    width: 28,
-                    height: 28,
+                    width: 36,
+                    height: 36,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       border: Border.all(
-                        color: const Color(0xFF8FA9C9),
-                        width: 2,
+                        color: Color(0xFF6B8E23),
+                        width: 3,
                       ),
-                      color: isCompleted
-                          ? const Color(0xFF8FA9C9)
-                          : Colors.transparent,
+                      color: isCompleted ? Color(0xFF6B8E23) : Colors.white,
                     ),
                     child: isCompleted
-                        ? const Icon(
+                        ? Icon(
                       Icons.check,
-                      size: 18,
+                      size: 22,
                       color: Colors.white,
                     )
                         : null,
@@ -379,39 +536,46 @@ class _CalendarPageState extends State<CalendarPage> {
                       Text(
                         event['title'],
                         style: TextStyle(
-                          fontSize: 16,
+                          fontSize: 18,
                           fontWeight: FontWeight.bold,
-                          color: const Color(0xFF3D2C31),
-                          decoration: isCompleted
-                              ? TextDecoration.lineThrough
-                              : null,
+                          color: Color(0xFF5D4037),
+                          decoration: isCompleted ? TextDecoration.lineThrough : null,
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.access_time,
-                            size: 14,
-                            color: const Color(0xFF5A4046).withOpacity(0.7),
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            timeStr,
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: const Color(0xFF5A4046).withOpacity(0.7),
+                      const SizedBox(height: 6),
+                      Container(
+                        padding: EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: Color(0xFFFFF5F3),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.access_time,
+                              size: 16,
+                              color: Color(0xFF8D6E63),
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 6),
+                            Text(
+                              timeStr,
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF8D6E63),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                       if (event['description']?.isNotEmpty ?? false) ...[
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 8),
                         Text(
                           event['description'],
                           style: TextStyle(
-                            fontSize: 13,
-                            color: const Color(0xFF5A4046).withOpacity(0.6),
+                            fontSize: 14,
+                            color: Color(0xFF8D6E63),
                           ),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
@@ -421,15 +585,22 @@ class _CalendarPageState extends State<CalendarPage> {
                   ),
                 ),
 
-                // Delete button (only for caretakers)
+                // Delete button (caretakers only)
                 if (widget.isCaretaker)
-                  IconButton(
-                    onPressed: () => _showDeleteConfirmation(event['id']),
-                    icon: const Icon(
-                      Icons.delete_outline,
-                      color: Color(0xFFFF4757),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    tooltip: 'Delete',
+                    child: IconButton(
+                      onPressed: () => _showDeleteConfirmation(event['id']),
+                      icon: Icon(
+                        Icons.delete_outline,
+                        color: Colors.red.shade700,
+                        size: 24,
+                      ),
+                      tooltip: 'Delete',
+                    ),
                   ),
               ],
             ),
@@ -442,7 +613,7 @@ class _CalendarPageState extends State<CalendarPage> {
   void _showEventDetails(Map<String, dynamic> event) {
     final time = event['time'] as DateTime;
     final timeStr = DateFormat('h:mm a').format(time);
-    final dateStr = DateFormat('MMMM dd, yyyy').format(time);
+    final dateStr = DateFormat('EEEE, MMMM dd, yyyy').format(time);
 
     showDialog(
       context: context,
@@ -453,7 +624,7 @@ class _CalendarPageState extends State<CalendarPage> {
         child: Container(
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
-            color: const Color(0xFFF5E6E8),
+            color: const Color(0xFFF4E4E1),
             borderRadius: BorderRadius.circular(24),
           ),
           child: Column(
@@ -462,97 +633,84 @@ class _CalendarPageState extends State<CalendarPage> {
             children: [
               Row(
                 children: [
-                  const Icon(
-                    Icons.event,
-                    size: 32,
-                    color: Color(0xFF8FA9C9),
+                  Container(
+                    padding: EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Color(0xFFD4A5A5), Color(0xFFE8B5B5)],
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      Icons.event,
+                      size: 28,
+                      color: Colors.white,
+                    ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 14),
                   Expanded(
                     child: Text(
-                      event['title'],
-                      style: const TextStyle(
-                        fontSize: 20,
+                      'Reminder Details',
+                      style: TextStyle(
+                        fontSize: 22,
                         fontWeight: FontWeight.bold,
-                        color: Color(0xFF3D2C31),
+                        color: Color(0xFF5D4037),
                       ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 20),
               Container(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFE8C4C8),
-                  borderRadius: BorderRadius.circular(12),
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Color(0xFFD4A5A5), width: 2),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.calendar_today,
-                          size: 18,
-                          color: Color(0xFF3D2C31),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          dateStr,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            color: Color(0xFF3D2C31),
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
+                    Text(
+                      event['title'],
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF5D4037),
+                      ),
                     ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.access_time,
-                          size: 18,
-                          color: Color(0xFF3D2C31),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          timeStr,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            color: Color(0xFF3D2C31),
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
+                    SizedBox(height: 16),
+                    _buildDetailRow(Icons.calendar_today, 'Date', dateStr),
+                    SizedBox(height: 12),
+                    _buildDetailRow(Icons.access_time, 'Time', timeStr),
                   ],
                 ),
               ),
               if (event['description']?.isNotEmpty ?? false) ...[
                 const SizedBox(height: 16),
-                const Text(
-                  'Description:',
+                Text(
+                  'Notes:',
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: 16,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF3D2C31),
+                    color: Color(0xFF5D4037),
                   ),
                 ),
                 const SizedBox(height: 8),
                 Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFE8C4C8),
+                    color: Colors.white,
                     borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Color(0xFFD4A5A5), width: 2),
                   ),
                   child: Text(
                     event['description'],
-                    style: const TextStyle(
-                      fontSize: 15,
-                      color: Color(0xFF3D2C31),
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Color(0xFF5D4037),
+                      height: 1.4,
                     ),
                   ),
                 ),
@@ -560,21 +718,22 @@ class _CalendarPageState extends State<CalendarPage> {
               const SizedBox(height: 24),
               SizedBox(
                 width: double.infinity,
+                height: 56,
                 child: ElevatedButton(
                   onPressed: () => Navigator.pop(context),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF8FA9C9),
+                    backgroundColor: Color(0xFFD4A5A5),
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(14),
                     ),
+                    elevation: 3,
                   ),
-                  child: const Text(
+                  child: Text(
                     'Close',
                     style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ),
@@ -586,32 +745,71 @@ class _CalendarPageState extends State<CalendarPage> {
     );
   }
 
+  Widget _buildDetailRow(IconData icon, String label, String value) {
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: Color(0xFFD4A5A5)),
+        SizedBox(width: 10),
+        Text(
+          '$label: ',
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF8D6E63),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: TextStyle(
+              fontSize: 15,
+              color: Color(0xFF5D4037),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   void _showDeleteConfirmation(String reminderId) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(24),
         ),
-        title: const Row(
+        backgroundColor: Color(0xFFFFF5F5),
+        title: Row(
           children: [
-            Icon(Icons.warning_amber, color: Color(0xFFFF4757)),
+            Icon(Icons.warning_amber_rounded, color: Colors.red.shade600, size: 32),
             SizedBox(width: 12),
-            Text('Delete Reminder'),
+            Text(
+              'Delete Reminder?',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF5D4037),
+              ),
+            ),
           ],
         ),
-        content: const Text(
-          'Are you sure you want to delete this reminder?',
-          style: TextStyle(fontSize: 16),
+        content: Text(
+          'Are you sure you want to delete this reminder? This cannot be undone.',
+          style: TextStyle(
+            fontSize: 16,
+            color: Color(0xFF5D4037),
+            height: 1.4,
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text(
+            child: Text(
               'Cancel',
               style: TextStyle(
-                color: Color(0xFF666666),
+                color: Color(0xFF8D6E63),
                 fontSize: 16,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),
@@ -621,15 +819,26 @@ class _CalendarPageState extends State<CalendarPage> {
               _deleteReminder(reminderId);
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFFF4757),
+              backgroundColor: Colors.red.shade600,
               foregroundColor: Colors.white,
+              padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
             ),
-            child: const Text(
-              'Delete',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.delete, size: 20),
+                SizedBox(width: 6),
+                Text(
+                  'Delete',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
