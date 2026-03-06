@@ -19,6 +19,7 @@ const _kAction    = Color(0xFF8FA9C9); // steel blue
 const _kTextDark  = Color(0xFF3D2C31);
 const _kTextLight = Color(0xFFF5EDED);
 const _kTextMuted = Color(0xFFA08080);
+const _kHeart     = Color(0xFFE8736C); // same coral as emergency — fits the palette
 
 const _kBase = TextStyle(
   decoration: TextDecoration.none,
@@ -41,6 +42,7 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
 
   List<Map<String, dynamic>> _reminders = [];
   bool _isLoading = true;
+  bool _isRefreshing = false;
   int  _currentIndex = 0;
 
   Timer? _checkTimer;
@@ -48,6 +50,11 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
   final Set<String> _alertedIds = {};
 
   String _firstName = '';
+
+  // ── Heart rate ───────────────────────────────────────────────────────────────
+  static const _hrChannel = EventChannel('cognicare/heart_rate');
+  int?   _heartRate;
+  StreamSubscription? _hrSub;
 
   // Alert animation
   late AnimationController _alertPulse;
@@ -86,17 +93,16 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
     _swipeCtrl = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 280));
     _swipeAnim = CurvedAnimation(parent: _swipeCtrl, curve: Curves.easeOutCubic);
-    _swipeCtrl.value = 1.0; // Start fully visible so first card is in focus
+    _swipeCtrl.value = 1.0;
 
     _loadPatientName();
     _loadReminders();
     _setupListener();
+    _initHealth(); // ← heart rate init
 
-    // Check every 15 seconds for due reminders
     _checkTimer = Timer.periodic(const Duration(seconds: 15), (_) {
       if (mounted) _checkDue();
     });
-    // Also check immediately on start
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) _checkDue();
     });
@@ -111,7 +117,26 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
     _swipeCtrl.dispose();
     _checkTimer?.cancel();
     _reminderSub?.cancel();
+    _hrSub?.cancel();
     super.dispose();
+  }
+
+  // ── Heart rate ────────────────────────────────────────────────────────────────
+
+  /// Subscribe to the native heart rate sensor stream.
+  void _initHealth() {
+    try {
+      _hrSub = _hrChannel.receiveBroadcastStream().listen(
+            (value) {
+          if (mounted && value is int && value > 0) {
+            setState(() => _heartRate = value);
+          }
+        },
+        onError: (e) => debugPrint('heartRate error: $e'),
+      );
+    } catch (e) {
+      debugPrint('initHealth: $e');
+    }
   }
 
   // ── Data ─────────────────────────────────────────────────────────────────────
@@ -152,6 +177,14 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
     }
   }
 
+  Future<void> _refresh() async {
+    if (_isRefreshing) return;
+    setState(() => _isRefreshing = true);
+    HapticFeedback.mediumImpact();
+    await _loadReminders();
+    if (mounted) setState(() => _isRefreshing = false);
+  }
+
   void _setupListener() {
     _reminderSub = _firestore
         .collection('reminders')
@@ -168,14 +201,12 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
         if (_alertedIds.contains(doc.id)) continue;
         final t    = (tv as Timestamp).toDate();
         final diff = currentTime.difference(t);
-        // Trigger if within a 2-minute window of the reminder time
         if (diff.inSeconds >= 0 && diff.inSeconds < 120) {
           _triggerAlert({
             'reminderId': doc.id,
             'title': r['title'] ?? 'Reminder',
             'time': DateFormat('h:mm a').format(t.toLocal()),
             'timestamp': t.millisecondsSinceEpoch,
-            // ── FIX: read both notes and description ──
             'notes': (r['notes'] as String? ?? '').isNotEmpty
                 ? r['notes']
                 : (r['description'] as String? ?? ''),
@@ -208,14 +239,12 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
         if (tv == null) continue;
         final t = (tv as Timestamp).toDate();
         final diff = now.difference(t);
-        // Only alert if within 5 minutes (avoid alerting very old reminders)
         if (diff.inMinutes < 5) {
           _triggerAlert({
             'reminderId': doc.id,
             'title': r['title'] ?? 'Reminder',
             'time': DateFormat('h:mm a').format(t.toLocal()),
             'timestamp': t.millisecondsSinceEpoch,
-            // ── FIX: read both notes and description ──
             'notes': (r['notes'] as String? ?? '').isNotEmpty
                 ? r['notes']
                 : (r['description'] as String? ?? ''),
@@ -231,13 +260,9 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
     final id = data['reminderId'] ?? '';
     if (id.isEmpty || _alertedIds.contains(id)) return;
     _alertedIds.add(id);
-
-    // Vibrate pattern
     _vibrateAlert();
-
     if (mounted) {
       setState(() => _alertReminder = data);
-      // Start shake after a brief delay so the widget is rendered
       Future.delayed(const Duration(milliseconds: 50), () {
         if (mounted) _alertShake.forward(from: 0);
       });
@@ -274,7 +299,6 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
           'completed': false,
           'isSnoozed': true,
         });
-        // Allow re-alerting after snooze
         _alertedIds.remove(id);
       } else if (markDone) {
         final scheduled = timestamp != null
@@ -295,7 +319,6 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
 
   void _navigateTo(int index) {
     if (_reminders.isEmpty) return;
-    // Wrap around
     final wrapped = index % _reminders.length;
     if (wrapped == _currentIndex) return;
     _swipingLeft = index > _currentIndex;
@@ -303,10 +326,6 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
     _swipeCtrl.forward(from: 0);
   }
 
-  // ── Helper: resolve details text from either field ────────────────────────────
-
-  /// Returns the best available details string for a reminder map.
-  /// Prefers `notes`; falls back to `description`; returns '' if neither.
   String _details(Map<String, dynamic> r) {
     final notes = (r['notes'] as String? ?? '').trim();
     if (notes.isNotEmpty) return notes;
@@ -340,6 +359,16 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
               style: _kBase.copyWith(color: Colors.white, fontSize: 17),
             ),
           ],
+          // Heart rate in ambient mode (dim white)
+          if (_heartRate != null) ...[
+            const SizedBox(height: 4),
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.favorite, color: Colors.white38, size: 9),
+              const SizedBox(width: 2),
+              Text('$_heartRate bpm',
+                  style: _kBase.copyWith(color: Colors.white38, fontSize: 9)),
+            ]),
+          ],
         ]),
       ),
     );
@@ -352,17 +381,102 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
         child: LayoutBuilder(builder: (ctx, bc) {
           final diameter = bc.maxWidth;
 
-          // Show fullscreen alert if one is active
           if (_alertReminder != null) {
             return _buildFullscreenAlert(diameter);
           }
 
-          if (_isLoading) return _buildLoader();
-          if (_reminders.isEmpty) return _buildEmpty(diameter);
-          return _buildCarousel(diameter);
+          final body = _isLoading
+              ? _buildLoader()
+              : _reminders.isEmpty
+              ? _buildEmpty(diameter)
+              : _buildCarousel(diameter);
+
+          return GestureDetector(
+            onVerticalDragEnd: (details) {
+              // Swipe down to refresh
+              if ((details.primaryVelocity ?? 0) > 200) _refresh();
+            },
+            child: Stack(children: [
+              body,
+              // Refresh indicator at top
+              if (_isRefreshing)
+                Positioned(
+                  top: diameter * 0.12,
+                  left: 0, right: 0,
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: _kAction.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        SizedBox(
+                          width: 9, height: 9,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 1.5, color: _kAction),
+                        ),
+                        const SizedBox(width: 5),
+                        Text('Refreshing…',
+                            style: _kBase.copyWith(
+                                color: _kAction, fontSize: 8)),
+                      ]),
+                    ),
+                  ),
+                ),
+            ]),
+          );
         }),
       ),
     );
+  }
+
+  // ── Heart rate badge ──────────────────────────────────────────────────────────
+
+  /// Heart rate pill widget (inline, not positioned).
+  Widget _buildHeartRatePill() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: _kHeart.withOpacity(0.13),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _kHeart.withOpacity(0.35), width: 0.8),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(Icons.favorite, color: _kHeart, size: 9),
+        const SizedBox(width: 3),
+        Text(
+          _heartRate != null ? '$_heartRate bpm' : '-- bpm',
+          style: _kBase.copyWith(
+              color: _kHeart, fontSize: 9, fontWeight: FontWeight.w700),
+        ),
+      ]),
+    );
+  }
+
+  /// Logout + heart rate row shown in the centre of the screen.
+  Widget _buildCentreBar() {
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      // Logout button
+      GestureDetector(
+        onTap: _showLogoutSheet,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: _kDivider.withOpacity(0.55),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.logout, size: 9, color: _kTextMuted),
+            const SizedBox(width: 3),
+            Text('Sign out',
+                style: _kBase.copyWith(color: _kTextMuted, fontSize: 9)),
+          ]),
+        ),
+      ),
+      const SizedBox(width: 6),
+      _buildHeartRatePill(),
+    ]);
   }
 
   // ── Loader ───────────────────────────────────────────────────────────────────
@@ -405,25 +519,9 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
               Text('No reminders today',
                   style: _kBase.copyWith(color: _kTextMuted, fontSize: 8),
                   textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              _buildCentreBar(),
             ]),
-          ),
-        ),
-        // ── Logout button — top-left arc ────────────────────────────────────
-        Positioned(
-          top: r * 0.18,
-          left: r * 0.18,
-          child: GestureDetector(
-            onTap: _showLogoutSheet,
-            child: Container(
-              width: 22,
-              height: 22,
-              decoration: BoxDecoration(
-                color: _kDivider.withOpacity(0.55),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(Icons.logout,
-                  size: 11, color: _kTextMuted.withOpacity(0.7)),
-            ),
           ),
         ),
       ],
@@ -433,10 +531,9 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
   // ── Fullscreen alert ──────────────────────────────────────────────────────────
 
   Widget _buildFullscreenAlert(double diameter) {
-    final data  = _alertReminder!;
-    final title = data['title'] as String? ?? 'Reminder';
-    final time  = data['time'] as String? ?? '';
-    // ── FIX: use helper so description is also shown in alerts ──
+    final data    = _alertReminder!;
+    final title   = data['title'] as String? ?? 'Reminder';
+    final time    = data['time'] as String? ?? '';
     final details = (data['notes'] as String? ?? '').trim().isNotEmpty
         ? (data['notes'] as String).trim()
         : (data['description'] as String? ?? '').trim();
@@ -458,7 +555,6 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Bell icon
                   Container(
                     width: 36, height: 36,
                     decoration: BoxDecoration(
@@ -487,7 +583,6 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
                           color: Colors.white.withOpacity(0.85),
                           fontSize: 9,
                           fontWeight: FontWeight.w500)),
-                  // ── FIX: show details in alert (was labelled 'notes') ──
                   if (details.isNotEmpty) ...[
                     const SizedBox(height: 2),
                     Padding(
@@ -502,9 +597,7 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
                     ),
                   ],
                   const SizedBox(height: 10),
-                  // Buttons
                   Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    // Snooze
                     _AlertButton(
                       label: '+5',
                       icon: Icons.snooze,
@@ -513,7 +606,6 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
                       fg: Colors.white,
                     ),
                     const SizedBox(width: 8),
-                    // Done
                     _AlertButton(
                       label: 'Done',
                       icon: Icons.check,
@@ -536,25 +628,22 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
   Widget _buildCarousel(double diameter) {
     final r = diameter / 2;
 
-    // Side oval dimensions
     const sideW = 48.0;
     const sideH = 84.0;
 
     final cardDiameter = (diameter - 46).clamp(100.0, 200.0) * 0.78;
     final centreR = cardDiameter / 2;
 
-    final current = _reminders[_currentIndex];
-    final timeVal = (current['time'] as Timestamp?)?.toDate();
-    final timeStr = timeVal != null ? DateFormat('h:mm a').format(timeVal.toLocal()) : '';
-    // ── FIX: use helper for details ──
+    final current  = _reminders[_currentIndex];
+    final timeVal  = (current['time'] as Timestamp?)?.toDate();
+    final timeStr  = timeVal != null ? DateFormat('h:mm a').format(timeVal.toLocal()) : '';
     final details  = _details(current);
     final category = (current['category'] as String? ?? '').trim();
 
     const greetingTop = 8.0;
-    const dotsBottom = 10.0;
+    const dotsBottom  = 10.0;
 
     return GestureDetector(
-      // Horizontal swipe to navigate
       onHorizontalDragEnd: (details) {
         if (details.primaryVelocity == null) return;
         if (details.primaryVelocity! < -100) {
@@ -600,7 +689,6 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            // Title
                             Padding(
                               padding: const EdgeInsets.symmetric(horizontal: 20),
                               child: Text(
@@ -616,13 +704,11 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
                               ),
                             ),
                             const SizedBox(height: 4),
-                            // Time
                             Text(timeStr,
                                 style: _kBase.copyWith(
                                     color: Colors.white.withOpacity(0.85),
                                     fontSize: 10,
                                     fontWeight: FontWeight.w500)),
-                            // Category badge (if present)
                             if (category.isNotEmpty) ...[
                               const SizedBox(height: 4),
                               Container(
@@ -639,10 +725,8 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
                                         fontWeight: FontWeight.w600)),
                               ),
                             ],
-                            // ── FIX: Details section (notes OR description) ──
                             if (details.isNotEmpty) ...[
                               const SizedBox(height: 6),
-                              // Subtle divider
                               Padding(
                                 padding: const EdgeInsets.symmetric(horizontal: 24),
                                 child: Divider(
@@ -667,7 +751,6 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
                               ),
                             ],
                             const SizedBox(height: 6),
-                            // Tap hint
                             Text('tap to act',
                                 style: _kBase.copyWith(
                                     color: Colors.white.withOpacity(0.45),
@@ -744,26 +827,13 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
             ),
           ),
 
-          // ── Logout button — top-left arc (hard to accidentally press) ─────
+          // ── Centre bar (logout + heart rate) just above dots ────────────
           Positioned(
-            top: r * 0.18,
-            left: r * 0.18,
-            child: GestureDetector(
-              onTap: _showLogoutSheet,
-              child: Container(
-                width: 22,
-                height: 22,
-                decoration: BoxDecoration(
-                  color: _kDivider.withOpacity(0.55),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(Icons.logout,
-                    size: 11, color: _kTextMuted.withOpacity(0.7)),
-              ),
-            ),
+            bottom: dotsBottom + 14,
+            child: _buildCentreBar(),
           ),
 
-          // ── Dot indicator at BOTTOM ───────────────────────────────────────
+          // ── Dot indicator at bottom ───────────────────────────────────────
           Positioned(
             bottom: dotsBottom,
             child: _DotIndicator(
@@ -777,7 +847,6 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
   // ── Logout ────────────────────────────────────────────────────────────────────
 
   void _showLogoutSheet() {
-    // Step 1: first confirmation sheet
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -790,7 +859,6 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
         ),
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          // Drag handle
           Container(
             width: 24, height: 3,
             margin: const EdgeInsets.only(bottom: 8),
@@ -813,8 +881,7 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
             color: _kEmergency,
             textColor: Colors.white,
             onTap: () {
-              Navigator.pop(context); // close first sheet
-              // Small delay so first sheet finishes dismissing
+              Navigator.pop(context);
               Future.delayed(const Duration(milliseconds: 220), () {
                 if (mounted) _showLogoutConfirmSheet();
               });
@@ -833,7 +900,6 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
   }
 
   void _showLogoutConfirmSheet() {
-    // Step 2: second confirmation sheet
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -868,7 +934,6 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
             onTap: () async {
               Navigator.pop(context);
               await _authService.signOut();
-              // Auth stream in WatchActiveFace will redirect to login
             },
           ),
           const SizedBox(height: 6),
@@ -883,13 +948,12 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
     );
   }
 
-  // ── Bottom sheet to mark done / snooze from carousel ─────────────────────────
+  // ── Bottom sheet to mark done / snooze ───────────────────────────────────────
 
   void _showDoneSheet(Map<String, dynamic> r, String timeStr) {
     final id        = r['id'] as String;
     final timestamp = (r['time'] as Timestamp?)?.toDate()?.millisecondsSinceEpoch;
-    // ── FIX: show details in sheet too ──
-    final details = _details(r);
+    final details   = _details(r);
 
     showModalBottomSheet(
       context: context,
@@ -904,7 +968,6 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
         ),
         padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          // Drag handle
           Container(
             width: 24, height: 3,
             margin: const EdgeInsets.only(bottom: 5),
@@ -920,7 +983,6 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
               overflow: TextOverflow.ellipsis),
           Text(timeStr,
               style: _kBase.copyWith(color: _kTextMuted, fontSize: 8)),
-          // ── FIX: show details beneath the time in the sheet ──
           if (details.isNotEmpty) ...[
             const SizedBox(height: 4),
             Divider(color: _kDivider, thickness: 0.8, height: 1),
