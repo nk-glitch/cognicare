@@ -21,551 +21,746 @@ class PatientDetailPage extends StatefulWidget {
 
 class _PatientDetailPageState extends State<PatientDetailPage>
     with SingleTickerProviderStateMixin {
-  late AnimationController _animationController;
+  late AnimationController _animController;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
+
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  int _selectedNavIndex = 2;
   Map<String, dynamic>? _patientData;
   List<Map<String, dynamic>> _reminders = [];
   bool _isLoading = true;
 
+  // Colors
+  static const _bg = Color(0xFFF7F4F2);
+  static const _card = Colors.white;
+  static const _accent = Color(0xFF5A7A1A);
+  static const _accentSoft = Color(0xFFEEF3E6);
+  static const _rose = Color(0xFFD4A5A5);
+  static const _roseSoft = Color(0xFFF4E4E1);
+  static const _text = Color(0xFF1E1A18);
+  static const _subtext = Color(0xFF7A6E6A);
+  static const _divider = Color(0xFFF0EBE8);
+
   @override
   void initState() {
     super.initState();
-    _animationController = AnimationController(
+    _animController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 300),
+      duration: const Duration(milliseconds: 700),
     );
+    _fadeAnimation =
+        CurvedAnimation(parent: _animController, curve: Curves.easeOut);
+    _slideAnimation =
+        Tween<Offset>(begin: const Offset(0, 0.04), end: Offset.zero).animate(
+          CurvedAnimation(parent: _animController, curve: Curves.easeOutCubic),
+        );
     _loadPatientData();
+  }
+
+  @override
+  void dispose() {
+    _animController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadPatientData() async {
     try {
-      // Load patient data
       final patientDoc = await _firestore
           .collection('patients')
           .doc(widget.patientId)
           .get();
-
       if (patientDoc.exists) {
-        setState(() {
-          _patientData = patientDoc.data();
-        });
+        _patientData = patientDoc.data();
       }
 
-      // Load reminders for this patient
       final remindersSnapshot = await _firestore
           .collection('reminders')
           .where('patientId', isEqualTo: widget.patientId)
           .orderBy('time')
           .get();
 
-      setState(() {
-        _reminders = remindersSnapshot.docs
-            .map((doc) => {'id': doc.id, ...doc.data()})
-            .toList();
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _reminders = remindersSnapshot.docs
+              .map((doc) => {'id': doc.id, ...doc.data()})
+              .toList();
+          _isLoading = false;
+        });
+        _animController.forward();
+      }
     } catch (e) {
-      print('Error loading patient data: $e');
-      setState(() {
-        _isLoading = false;
-      });
+      debugPrint('Error loading patient data: $e');
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  // Handle pull-to-refresh logic
   Future<void> _handleRefresh() async {
+    _animController.reset();
     await _loadPatientData();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Patient data refreshed'),
-          backgroundColor: Color(0xFF8FA9C9),
-          duration: Duration(seconds: 1),
-        ),
-      );
-    }
   }
 
-  @override
-  void dispose() {
-    _animationController.dispose();
-    super.dispose();
+  List<Map<String, dynamic>> get _todaysReminders {
+    final today = DateTime.now();
+    return _reminders.where((r) {
+      final t = (r['time'] as Timestamp?)?.toDate();
+      return t != null &&
+          t.year == today.year &&
+          t.month == today.month &&
+          t.day == today.day &&
+          r['isSnoozed'] != true;
+    }).toList();
   }
+
+  int get _completedToday =>
+      _todaysReminders.where((r) => r['completed'] == true).length;
+
+  Color _avatarColor() {
+    final colors = [
+      const Color(0xFF7B9E6B),
+      const Color(0xFF8FA9C9),
+      const Color(0xFFD4A5A5),
+      const Color(0xFFB5977A),
+      const Color(0xFF9B8EC4),
+    ];
+    return colors[widget.patientName.hashCode.abs() % colors.length];
+  }
+
+  String get _initials => widget.patientName
+      .split(' ')
+      .map((w) => w.isNotEmpty ? w[0] : '')
+      .take(2)
+      .join()
+      .toUpperCase();
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5E6E8),
-      body: SafeArea(
-        child: Column(
+      backgroundColor: _bg,
+      body: Stack(
+        children: [
+          // Background blobs
+          Positioned(
+            top: -50,
+            right: -50,
+            child: Container(
+              width: 200,
+              height: 200,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: _rose.withOpacity(0.15),
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: 80,
+            left: -60,
+            child: Container(
+              width: 220,
+              height: 220,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: _accent.withOpacity(0.06),
+              ),
+            ),
+          ),
+
+          SafeArea(
+            child: Column(
+              children: [
+                _buildTopBar(),
+                Expanded(
+                  child: _isLoading
+                      ? const Center(
+                      child: CircularProgressIndicator(color: _accent))
+                      : FadeTransition(
+                    opacity: _fadeAnimation,
+                    child: SlideTransition(
+                      position: _slideAnimation,
+                      child: RefreshIndicator(
+                        onRefresh: _handleRefresh,
+                        color: _accent,
+                        child: SingleChildScrollView(
+                          physics:
+                          const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.fromLTRB(
+                              20, 8, 20, 32),
+                          child: Column(
+                            crossAxisAlignment:
+                            CrossAxisAlignment.start,
+                            children: [
+                              _buildPatientHeader(),
+                              const SizedBox(height: 20),
+                              _buildRemindersCard(),
+                              const SizedBox(height: 20),
+                              _buildQuickActions(),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+      floatingActionButton: _buildFAB(),
+      bottomNavigationBar: _buildBottomNav(),
+    );
+  }
+
+  // ── Top bar ────────────────────────────────────────────────────────────────
+  Widget _buildTopBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: () => Navigator.pop(context),
+            child: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: _card,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFFB07A6E).withOpacity(0.12),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: const Icon(Icons.arrow_back_ios_new_rounded,
+                  color: _text, size: 18),
+            ),
+          ),
+          const SizedBox(width: 14),
+          RichText(
+            text: const TextSpan(
+              children: [
+                TextSpan(
+                  text: 'Cogni',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w300,
+                    color: Color(0xFF5D4037),
+                    letterSpacing: -0.5,
+                  ),
+                ),
+                TextSpan(
+                  text: 'Care',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF5D4037),
+                    letterSpacing: -0.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Spacer(),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: _card,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFFB07A6E).withOpacity(0.10),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Text(
+              DateFormat('MMM d').format(DateTime.now()),
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: _subtext,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Patient header card ────────────────────────────────────────────────────
+  Widget _buildPatientHeader() {
+    final total = _todaysReminders.length;
+    final done = _completedToday;
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: _card,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFB07A6E).withOpacity(0.10),
+            blurRadius: 30,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 60,
+            height: 60,
+            decoration: BoxDecoration(
+              color: _avatarColor(),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Center(
+              child: Text(
+                _initials,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.patientName,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: _text,
+                    letterSpacing: -0.4,
+                    height: 1.1,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Container(
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: _accentSoft,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Text(
+                    'Patient',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: _accent,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                '$done/$total',
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  color: _accent,
+                  letterSpacing: -0.5,
+                ),
+              ),
+              const Text(
+                'done today',
+                style: TextStyle(
+                    fontSize: 11,
+                    color: _subtext,
+                    fontWeight: FontWeight.w500),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Today's reminders card ─────────────────────────────────────────────────
+  Widget _buildRemindersCard() {
+    final reminders = _todaysReminders;
+    final total = reminders.length;
+    final done = _completedToday;
+    final progress = total > 0 ? done / total : 0.0;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: _card,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFB07A6E).withOpacity(0.10),
+            blurRadius: 30,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+            child: Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: _roseSoft,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child:
+                  const Icon(Icons.alarm_rounded, size: 18, color: _rose),
+                ),
+                const SizedBox(width: 12),
+                const Text(
+                  "Today's Reminders",
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: _text,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  '$total total',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: _subtext,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          if (total > 0) ...[
+            const SizedBox(height: 14),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: progress,
+                        minHeight: 5,
+                        backgroundColor: const Color(0xFFEDE5E2),
+                        valueColor:
+                        const AlwaysStoppedAnimation<Color>(_accent),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    progress == 1.0 ? 'All done!' : '$done/$total done',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: progress == 1.0 ? _accent : _subtext,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 14),
+          const Divider(height: 1, color: _divider),
+
+          if (reminders.isEmpty)
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Row(
+                children: const [
+                  Icon(Icons.check_circle_outline_rounded,
+                      size: 18, color: _accent),
+                  SizedBox(width: 10),
+                  Text(
+                    'No reminders scheduled for today',
+                    style: TextStyle(
+                        fontSize: 14,
+                        color: _subtext,
+                        fontStyle: FontStyle.italic),
+                  ),
+                ],
+              ),
+            )
+          else
+            ...reminders.asMap().entries.map((entry) {
+              final i = entry.key;
+              final reminder = entry.value;
+              final time = (reminder['time'] as Timestamp?)?.toDate();
+              final timeStr =
+              time != null ? DateFormat('h:mm a').format(time) : '';
+              final desc = reminder['description'] as String? ?? '';
+              final isCompleted = reminder['completed'] == true;
+              final isLast = i == reminders.length - 1;
+
+              return Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 14),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          margin: const EdgeInsets.only(top: 4),
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: isCompleted
+                                ? _accent
+                                : _rose.withOpacity(0.6),
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                reminder['title'] ?? 'Untitled',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                  color:
+                                  isCompleted ? _subtext : _text,
+                                  decoration: isCompleted
+                                      ? TextDecoration.lineThrough
+                                      : TextDecoration.none,
+                                ),
+                              ),
+                              if (desc.isNotEmpty) ...[
+                                const SizedBox(height: 3),
+                                Text(
+                                  desc,
+                                  style: const TextStyle(
+                                      fontSize: 13,
+                                      color: _subtext,
+                                      height: 1.4),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        if (timeStr.isNotEmpty)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 9, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: isCompleted
+                                  ? _accentSoft
+                                  : const Color(0xFFF7F4F2),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              timeStr,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color:
+                                isCompleted ? _accent : _subtext,
+                              ),
+                            ),
+                          ),
+                        if (isCompleted) ...[
+                          const SizedBox(width: 6),
+                          const Icon(Icons.check_rounded,
+                              size: 16, color: _accent),
+                        ],
+                      ],
+                    ),
+                  ),
+                  if (!isLast)
+                    const Divider(
+                        height: 1,
+                        indent: 42,
+                        endIndent: 20,
+                        color: _divider),
+                ],
+              );
+            }),
+
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton.icon(
+                onPressed: _showReminderSheet,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _accent,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                  elevation: 0,
+                ),
+                icon: const Icon(Icons.add_rounded, size: 20),
+                label: const Text(
+                  'Add Reminder',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Quick actions ──────────────────────────────────────────────────────────
+  Widget _buildQuickActions() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'QUICK ACCESS',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: _subtext,
+            letterSpacing: 1.2,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
           children: [
-            _buildHeader(),
             Expanded(
-              child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : RefreshIndicator(
-                onRefresh: _handleRefresh,
+              child: _ActionTile(
+                icon: Icons.calendar_month_rounded,
+                label: 'Calendar',
+                sublabel: 'All reminders',
                 color: const Color(0xFF8FA9C9),
-                backgroundColor: Colors.white,
-                child: SingleChildScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    children: [
-                      _buildPatientInfoCard(),
-                      const SizedBox(height: 20),
-                      _buildActionGrid(),
-                    ],
+                colorSoft: const Color(0xFFEAF1F8),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => CalendarPage(
+                      patientId: widget.patientId,
+                      patientName: widget.patientName,
+                      isCaretaker: true,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _ActionTile(
+                icon: Icons.location_on_rounded,
+                label: 'Location',
+                sublabel: 'Live map',
+                color: _accent,
+                colorSoft: _accentSoft,
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => LocationMapPage(
+                      patientId: widget.patientId,
+                      patientName: widget.patientName,
+                    ),
                   ),
                 ),
               ),
             ),
           ],
         ),
-      ),
-      bottomNavigationBar: _buildBottomNavBar(),
-    );
-  }
-
-  Widget _buildHeader() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      decoration: BoxDecoration(
-        color: const Color(0xFFE8C4C8),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          IconButton(
-            onPressed: () => Navigator.pop(context),
-            icon: const Icon(Icons.arrow_back, color: Color(0xFF3D2C31)),
-            style: IconButton.styleFrom(
-              backgroundColor: Colors.white.withOpacity(0.5),
-              padding: const EdgeInsets.all(8),
-            ),
-          ),
-          Text(
-            DateFormat('MMMM dd, yyyy').format(DateTime.now()),
-            style: const TextStyle(
-              fontSize: 14,
-              color: Color(0xFF5A4046),
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.5),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(
-              Icons.favorite,
-              color: Color(0xFFD47A8A),
-              size: 24,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPatientInfoCard() {
-    final todaysReminders = _reminders.where((reminder) {
-      final reminderDate = (reminder['time'] as Timestamp?)?.toDate();
-      final today = DateTime.now();
-      final isSnoozed = reminder['isSnoozed'] == true;
-      return reminderDate != null &&
-          reminderDate.year == today.year &&
-          reminderDate.month == today.month &&
-          reminderDate.day == today.day &&
-          !isSnoozed; // Exclude snoozed reminders
-    }).toList();
-
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFFE8C4C8),
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    widget.patientName,
-                    style: const TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF3D2C31),
-                    ),
-                  ),
-                ),
-                Container(
-                  width: 60,
-                  height: 60,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.7),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.person,
-                    size: 32,
-                    color: Color(0xFF8FA9C9),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Container(
-            margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  const Color(0xFFD4ADB1),
-                  const Color(0xFFD4ADB1).withOpacity(0.9),
-                ],
-              ),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: const Color(0xFFC09499),
-                width: 2,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.5),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(
-                        Icons.notifications_active,
-                        color: Color(0xFF8FA9C9),
-                        size: 24,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    const Expanded(
-                      child: Text(
-                        "Today's Reminders",
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF3D2C31),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                if (todaysReminders.isEmpty)
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.3),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.check_circle_outline,
-                          color: const Color(0xFF7A6A70).withOpacity(0.6),
-                          size: 20,
-                        ),
-                        const SizedBox(width: 12),
-                        const Text(
-                          'No reminders for today',
-                          style: TextStyle(
-                            fontSize: 15,
-                            color: Color(0xFF7A6A70),
-                            fontStyle: FontStyle.italic,
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                else
-                  ...todaysReminders.asMap().entries.map((entry) {
-                    final reminder = entry.value;
-                    final time = (reminder['time'] as Timestamp?)?.toDate();
-                    final timeStr = time != null
-                        ? DateFormat('h:mm a').format(time)
-                        : '';
-                    final description = reminder['description'] as String? ?? '';
-
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.4),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: Colors.white.withOpacity(0.6),
-                            width: 1.5,
-                          ),
-                        ),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Container(
-                              margin: const EdgeInsets.only(top: 2),
-                              width: 8,
-                              height: 8,
-                              decoration: const BoxDecoration(
-                                color: Color(0xFF8FA9C9),
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          reminder['title'] ?? 'Untitled',
-                                          style: const TextStyle(
-                                            fontSize: 16,
-                                            color: Color(0xFF3D2C31),
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                      if (timeStr.isNotEmpty)
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 10,
-                                            vertical: 4,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFF8FA9C9).withOpacity(0.3),
-                                            borderRadius: BorderRadius.circular(8),
-                                          ),
-                                          child: Text(
-                                            timeStr,
-                                            style: const TextStyle(
-                                              fontSize: 13,
-                                              color: Color(0xFF3D2C31),
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                  if (description.isNotEmpty) ...[
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      description,
-                                      style: const TextStyle(
-                                        fontSize: 14,
-                                        color: Color(0xFF5A4046),
-                                        height: 1.4,
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-            child: SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _showReminderPopup,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF8FA9C9),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  elevation: 3,
-                  shadowColor: const Color(0xFF8FA9C9).withOpacity(0.4),
-                ),
-                icon: const Icon(Icons.add_circle_outline, size: 22),
-                label: const Text(
-                  'Add New Reminder',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildActionGrid() {
-    return Column(
-      children: [
-        _buildHorizontalActionBar(
-          icon: Icons.calendar_month,
-          label: 'Calendar',
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => CalendarPage(
-                  patientId: widget.patientId,
-                  isCaretaker: true,
-                ),
-              ),
-            );
-          },
-        ),
-        const SizedBox(height: 16),
-        _buildHorizontalActionBar(
-          icon: Icons.location_on,
-          label: 'Location',
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => LocationMapPage(
-                  patientId: widget.patientId,
-                  patientName: widget.patientName,
-                ),
-              ),
-            );
-          },
-        ),
       ],
     );
   }
 
-  Widget _buildHorizontalActionBar({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-  }) {
-    return Container(
-      width: double.infinity,
-      height: 80,
-      decoration: BoxDecoration(
-        color: const Color(0xFFE8C4C8),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(20),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.6),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Icon(
-                    icon,
-                    size: 32,
-                    color: const Color(0xFF3D2C31),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Text(
-                    label,
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF3D2C31),
-                    ),
-                  ),
-                ),
-                const Icon(
-                  Icons.chevron_right,
-                  color: Color(0xFF3D2C31),
-                  size: 28,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+  // ── FAB ────────────────────────────────────────────────────────────────────
+  Widget _buildFAB() {
+    return FloatingActionButton(
+      onPressed: _showReminderSheet,
+      backgroundColor: _accent,
+      elevation: 4,
+      child: const Icon(Icons.add_rounded, color: Colors.white, size: 26),
     );
   }
 
-  Widget _buildBottomNavBar() {
+  // ── Bottom nav ─────────────────────────────────────────────────────────────
+  Widget _buildBottomNav() {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _card,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, -3),
+            color: const Color(0xFFB07A6E).withOpacity(0.10),
+            blurRadius: 16,
+            offset: const Offset(0, -4),
           ),
         ],
       ),
       child: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              _buildNavButton(Icons.calendar_today, 0),
-              _buildNavButton(Icons.location_on, 1),
-              _buildCenterAddButton(),
-              _buildNavButton(Icons.person, 3, tooltip: 'Profile'),
+              _NavItem(
+                icon: Icons.home_rounded,
+                label: 'Home',
+                onTap: () {},
+                highlight: true,
+              ),
+              _NavItem(
+                icon: Icons.calendar_today_outlined,
+                label: 'Calendar',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => CalendarPage(
+                      patientId: widget.patientId,
+                      patientName: widget.patientName,
+                      isCaretaker: true,
+                    ),
+                  ),
+                ),
+              ),
+              _NavItem(
+                icon: Icons.location_on_outlined,
+                label: 'Location',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => LocationMapPage(
+                      patientId: widget.patientId,
+                      patientName: widget.patientName,
+                    ),
+                  ),
+                ),
+              ),
+              _NavItem(
+                icon: Icons.person_outline_rounded,
+                label: 'Profile',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const ProfilePage(isCaretaker: true),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -573,118 +768,149 @@ class _PatientDetailPageState extends State<PatientDetailPage>
     );
   }
 
-  Widget _buildNavButton(IconData icon, int index, {String? tooltip}) {
-    final isSelected = _selectedNavIndex == index;
-    return Tooltip(
-      message: tooltip ?? _navLabel(index),
-      child: IconButton(
-        onPressed: () {
-          setState(() {
-            _selectedNavIndex = index;
-          });
-          _handleNavigation(index);
-        },
-        icon: Icon(
-          icon,
-          color: isSelected ? const Color(0xFF8FA9C9) : const Color(0xFF9E9E9E),
-          size: 28,
-        ),
-      ),
-    );
-  }
-
-  String _navLabel(int index) {
-    switch (index) {
-      case 0: return 'Calendar';
-      case 1: return 'Location';
-      case 2: return 'Add reminder';
-      case 3: return 'Profile';
-      default: return '';
-    }
-  }
-
-  Widget _buildCenterAddButton() {
-    final isSelected = _selectedNavIndex == 2;
-    return Tooltip(
-      message: 'Add reminder',
-      child: IconButton(
-        onPressed: _showReminderPopup,
-        icon: Icon(
-          Icons.add_circle_outline,
-          color: isSelected ? const Color(0xFF8FA9C9) : const Color(0xFF9E9E9E),
-          size: 28,
-        ),
-      ),
-    );
-  }
-
-  void _handleNavigation(int index) {
-    switch (index) {
-      case 0:
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => CalendarPage(
-              patientId: widget.patientId,
-              isCaretaker: true,
-            ),
-          ),
-        );
-        break;
-      case 1:
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => LocationMapPage(
-              patientId: widget.patientId,
-              patientName: widget.patientName,
-            ),
-          ),
-        );
-        break;
-      case 3:
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => const ProfilePage(isCaretaker: true),
-          ),
-        );
-        break;
-    }
-  }
-
-  void _showReminderPopup() {
+  void _showReminderSheet() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => ReminderPopup(
+      builder: (_) => ReminderSheet(
         patientId: widget.patientId,
-        onSave: () {
-          _loadPatientData(); // Reload reminders
-        },
+        onSave: _loadPatientData,
       ),
     );
   }
 }
 
-// --- POPUP WIDGETS START HERE ---
+// ── Action tile ───────────────────────────────────────────────────────────────
+class _ActionTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String sublabel;
+  final Color color;
+  final Color colorSoft;
+  final VoidCallback onTap;
 
-class ReminderPopup extends StatefulWidget {
+  const _ActionTile({
+    required this.icon,
+    required this.label,
+    required this.sublabel,
+    required this.color,
+    required this.colorSoft,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFFB07A6E).withOpacity(0.09),
+              blurRadius: 20,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: colorSoft,
+                borderRadius: BorderRadius.circular(11),
+              ),
+              child: Icon(icon, color: color, size: 20),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF1E1A18),
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              sublabel,
+              style:
+              const TextStyle(fontSize: 12, color: Color(0xFF7A6E6A)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Bottom nav item ───────────────────────────────────────────────────────────
+class _NavItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool highlight;
+
+  const _NavItem({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.highlight = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 24,
+            color: highlight
+                ? const Color(0xFF5A7A1A)
+                : const Color(0xFFBDB0AC),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: highlight
+                  ? const Color(0xFF5A7A1A)
+                  : const Color(0xFFBDB0AC),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Reminder bottom sheet ─────────────────────────────────────────────────────
+class ReminderSheet extends StatefulWidget {
   final String patientId;
   final VoidCallback onSave;
 
-  const ReminderPopup({
+  const ReminderSheet({
     super.key,
     required this.patientId,
     required this.onSave,
   });
 
   @override
-  State<ReminderPopup> createState() => _ReminderPopupState();
+  State<ReminderSheet> createState() => _ReminderSheetState();
 }
 
-class _ReminderPopupState extends State<ReminderPopup> {
+class _ReminderSheetState extends State<ReminderSheet> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
@@ -693,6 +919,10 @@ class _ReminderPopupState extends State<ReminderPopup> {
   String _selectedRepeat = 'Once';
   bool _isSaving = false;
 
+  static const _accent = Color(0xFF5A7A1A);
+  static const _text = Color(0xFF1E1A18);
+  static const _subtext = Color(0xFF7A6E6A);
+
   @override
   void dispose() {
     _titleController.dispose();
@@ -700,27 +930,27 @@ class _ReminderPopupState extends State<ReminderPopup> {
     super.dispose();
   }
 
-  Future<void> _saveReminder() async {
-    if (_titleController.text.isEmpty) {
+  Future<void> _save() async {
+    if (_titleController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Please enter a title'),
-          backgroundColor: Colors.red.shade400,
+          content: const Text('Please enter a title',
+              style: TextStyle(fontWeight: FontWeight.w600)),
+          backgroundColor: const Color(0xFFE57373),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
+              borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.all(16),
         ),
       );
       return;
     }
 
     setState(() => _isSaving = true);
-
     try {
       final now = DateTime.now();
       final date = _selectedDate ?? now;
-      DateTime reminderTime = DateTime(
+      final reminderTime = DateTime(
         date.year,
         date.month,
         date.day,
@@ -730,8 +960,8 @@ class _ReminderPopupState extends State<ReminderPopup> {
 
       await _firestore.collection('reminders').add({
         'patientId': widget.patientId,
-        'title': _titleController.text,
-        'description': _descriptionController.text,
+        'title': _titleController.text.trim(),
+        'description': _descriptionController.text.trim(),
         'type': 'reminder',
         'time': Timestamp.fromDate(reminderTime),
         'repeating': _selectedRepeat.toLowerCase(),
@@ -744,97 +974,236 @@ class _ReminderPopupState extends State<ReminderPopup> {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Reminder added successfully!'),
-            backgroundColor: const Color(0xFF8FA9C9),
+            content: const Text('Reminder added!',
+                style: TextStyle(fontWeight: FontWeight.w600)),
+            backgroundColor: _accent,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
+                borderRadius: BorderRadius.circular(12)),
+            margin: const EdgeInsets.all(16),
           ),
         );
       }
     } catch (e) {
-      print('Error saving reminder: $e');
+      debugPrint('Error saving reminder: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to save reminder: $e'),
-            backgroundColor: Colors.red,
+            content: const Text('Failed to save, try again'),
+            backgroundColor: const Color(0xFF8D6E63),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12)),
+            margin: const EdgeInsets.all(16),
           ),
         );
       }
     } finally {
-      if (mounted) {
-        setState(() => _isSaving = false);
-      }
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final bottomPad = MediaQuery.of(context).viewInsets.bottom;
+
     return Container(
-      height: MediaQuery.of(context).size.height * 0.75,
+      padding: EdgeInsets.fromLTRB(0, 0, 0, bottomPad),
       decoration: const BoxDecoration(
-        color: Color(0xFF3D2C31),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
+          // Handle
           Container(
             margin: const EdgeInsets.symmetric(vertical: 12),
-            width: 40,
+            width: 36,
             height: 4,
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.5),
+              color: const Color(0xFFEDE5E2),
               borderRadius: BorderRadius.circular(2),
             ),
           ),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-            child: Text(
-              'Add New Reminder',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-          ),
-          Expanded(
-            child: Container(
-              margin: const EdgeInsets.all(20),
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF5E6E8),
-                borderRadius: BorderRadius.circular(24),
-              ),
-              child: SingleChildScrollView(
-                child: Column(
+
+          // Header
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 4, 24, 20),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEEF3E6),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.alarm_add_rounded,
+                      color: _accent, size: 22),
+                ),
+                const SizedBox(width: 14),
+                const Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildInputField(
-                      label: 'Title:',
-                      controller: _titleController,
-                      hint: 'Enter reminder title',
+                    Text(
+                      'New Reminder',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: _text,
+                        letterSpacing: -0.3,
+                      ),
                     ),
-                    const SizedBox(height: 16),
-                    _buildInputField(
-                      label: 'Description:',
-                      controller: _descriptionController,
-                      hint: 'Enter description',
-                      maxLines: 3,
+                    Text(
+                      'Fill in the details below',
+                      style: TextStyle(fontSize: 13, color: _subtext),
                     ),
-                    const SizedBox(height: 16),
-                    _buildDateSelector(),
-                    const SizedBox(height: 16),
-                    _buildTimeSelector(),
-                    const SizedBox(height: 16),
-                    _buildRepeatSelector(),
-                    const SizedBox(height: 32),
-                    _buildSaveButton(),
                   ],
                 ),
-              ),
+              ],
+            ),
+          ),
+
+          const Divider(height: 1, color: Color(0xFFF0EBE8)),
+
+          SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _Field(
+                  label: 'Title',
+                  child: _textField(_titleController,
+                      hint: 'e.g. Take morning medication'),
+                ),
+                const SizedBox(height: 16),
+                _Field(
+                  label: 'Description',
+                  child: _textField(_descriptionController,
+                      hint: 'Optional notes', maxLines: 2),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _Field(
+                        label: 'Date',
+                        child: _Picker(
+                          icon: Icons.calendar_today_outlined,
+                          value: _selectedDate != null
+                              ? DateFormat('MMM d, y').format(_selectedDate!)
+                              : 'Select',
+                          onTap: () async {
+                            final d = await showDatePicker(
+                              context: context,
+                              initialDate: _selectedDate ?? DateTime.now(),
+                              firstDate: DateTime.now(),
+                              lastDate: DateTime.now()
+                                  .add(const Duration(days: 730)),
+                              builder: (ctx, child) => Theme(
+                                data: Theme.of(ctx).copyWith(
+                                  colorScheme: const ColorScheme.light(
+                                      primary: _accent),
+                                ),
+                                child: child!,
+                              ),
+                            );
+                            if (d != null) setState(() => _selectedDate = d);
+                          },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _Field(
+                        label: 'Time',
+                        child: _Picker(
+                          icon: Icons.access_time_rounded,
+                          value: _selectedTime != null
+                              ? _selectedTime!.format(context)
+                              : 'Select',
+                          onTap: () async {
+                            final t = await showTimePicker(
+                              context: context,
+                              initialTime: TimeOfDay.now(),
+                              builder: (ctx, child) => Theme(
+                                data: Theme.of(ctx).copyWith(
+                                  colorScheme: const ColorScheme.light(
+                                      primary: _accent),
+                                ),
+                                child: child!,
+                              ),
+                            );
+                            if (t != null) setState(() => _selectedTime = t);
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                _Field(
+                  label: 'Repeat',
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFAF6F4),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                          color: const Color(0xFFEDE5E2), width: 1.5),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: _selectedRepeat,
+                        isExpanded: true,
+                        icon: const Icon(Icons.keyboard_arrow_down_rounded,
+                            color: _subtext, size: 20),
+                        style: const TextStyle(
+                            fontSize: 14,
+                            color: _text,
+                            fontWeight: FontWeight.w500),
+                        dropdownColor: Colors.white,
+                        items: ['Once', 'Daily', 'Weekly', 'Monthly']
+                            .map((v) =>
+                            DropdownMenuItem(value: v, child: Text(v)))
+                            .toList(),
+                        onChanged: (v) {
+                          if (v != null) setState(() => _selectedRepeat = v);
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton(
+                    onPressed: _isSaving ? null : _save,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _accent,
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor: _accent.withOpacity(0.5),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14)),
+                      elevation: 0,
+                    ),
+                    child: _isSaving
+                        ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white),
+                    )
+                        : const Text(
+                      'Save Reminder',
+                      style: TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+              ],
             ),
           ),
         ],
@@ -842,246 +1211,106 @@ class _ReminderPopupState extends State<ReminderPopup> {
     );
   }
 
-  Widget _buildInputField({
-    required String label,
-    required TextEditingController controller,
-    required String hint,
-    int maxLines = 1,
-  }) {
+  Widget _textField(
+      TextEditingController controller, {
+        required String hint,
+        int maxLines = 1,
+      }) {
+    return TextField(
+      controller: controller,
+      maxLines: maxLines,
+      style: const TextStyle(
+          fontSize: 14, color: _text, fontWeight: FontWeight.w500),
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle:
+        const TextStyle(color: Color(0xFFBDB0AC), fontSize: 14),
+        filled: true,
+        fillColor: const Color(0xFFFAF6F4),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide:
+          const BorderSide(color: Color(0xFFEDE5E2), width: 1.5),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide:
+          const BorderSide(color: Color(0xFFEDE5E2), width: 1.5),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: _accent, width: 2),
+        ),
+        contentPadding:
+        const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      ),
+    );
+  }
+}
+
+// ── Form field wrapper ────────────────────────────────────────────────────────
+class _Field extends StatelessWidget {
+  final String label;
+  final Widget child;
+  const _Field({required this.label, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label,
           style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF3D2C31),
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF5D4037),
           ),
         ),
-        const SizedBox(height: 8),
-        Container(
-          decoration: BoxDecoration(
-            color: const Color(0xFFE8C4C8),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: TextField(
-            controller: controller,
-            maxLines: maxLines,
-            style: const TextStyle(color: Color(0xFF3D2C31)),
-            decoration: InputDecoration(
-              hintText: hint,
-              hintStyle: TextStyle(color: const Color(0xFF3D2C31).withOpacity(0.5)),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 12,
-              ),
-            ),
-          ),
-        ),
+        const SizedBox(height: 7),
+        child,
       ],
     );
   }
+}
 
-  Widget _buildDateSelector() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Date:',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF3D2C31),
-          ),
+// ── Date / time picker ────────────────────────────────────────────────────────
+class _Picker extends StatelessWidget {
+  final IconData icon;
+  final String value;
+  final VoidCallback onTap;
+
+  const _Picker(
+      {required this.icon, required this.value, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFAF6F4),
+          borderRadius: BorderRadius.circular(12),
+          border:
+          Border.all(color: const Color(0xFFEDE5E2), width: 1.5),
         ),
-        const SizedBox(height: 8),
-        InkWell(
-          onTap: () async {
-            final date = await showDatePicker(
-              context: context,
-              initialDate: _selectedDate ?? DateTime.now(),
-              firstDate: DateTime.now(),
-              lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
-              builder: (context, child) {
-                return Theme(
-                  data: Theme.of(context).copyWith(
-                    colorScheme: const ColorScheme.light(
-                      primary: Color(0xFF8FA9C9),
-                    ),
-                  ),
-                  child: child!,
-                );
-              },
-            );
-            if (date != null) {
-              setState(() => _selectedDate = date);
-            }
-          },
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            decoration: BoxDecoration(
-              color: const Color(0xFFE8C4C8),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.calendar_today, color: Color(0xFF3D2C31)),
-                const SizedBox(width: 12),
-                Text(
-                  _selectedDate != null
-                      ? DateFormat('MM/dd/yyyy').format(_selectedDate!)
-                      : 'Select date',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    color: Color(0xFF3D2C31),
-                  ),
+        child: Row(
+          children: [
+            Icon(icon, size: 16, color: const Color(0xFFD4A5A5)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF1E1A18),
                 ),
-              ],
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildTimeSelector() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Time:',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF3D2C31),
-          ),
-        ),
-        const SizedBox(height: 8),
-        InkWell(
-          onTap: () async {
-            final time = await showTimePicker(
-              context: context,
-              initialTime: TimeOfDay.now(),
-              builder: (context, child) {
-                return Theme(
-                  data: Theme.of(context).copyWith(
-                    colorScheme: const ColorScheme.light(
-                      primary: Color(0xFF8FA9C9),
-                    ),
-                  ),
-                  child: child!,
-                );
-              },
-            );
-            if (time != null) {
-              setState(() => _selectedTime = time);
-            }
-          },
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            decoration: BoxDecoration(
-              color: const Color(0xFFE8C4C8),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.access_time, color: Color(0xFF3D2C31)),
-                const SizedBox(width: 12),
-                Text(
-                  _selectedTime != null
-                      ? _selectedTime!.format(context)
-                      : 'Select time',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    color: Color(0xFF3D2C31),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildRepeatSelector() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Repeating?',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF3D2C31),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          decoration: BoxDecoration(
-            color: const Color(0xFFE8C4C8),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              value: _selectedRepeat,
-              isExpanded: true,
-              icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF3D2C31)),
-              style: const TextStyle(fontSize: 16, color: Color(0xFF3D2C31)),
-              dropdownColor: const Color(0xFFE8C4C8),
-              items: ['Once', 'Daily', 'Weekly', 'Monthly']
-                  .map((value) => DropdownMenuItem(
-                value: value,
-                child: Text(value),
-              ))
-                  .toList(),
-              onChanged: (value) {
-                if (value != null) {
-                  setState(() => _selectedRepeat = value);
-                }
-              },
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildSaveButton() {
-    return SizedBox(
-      width: double.infinity,
-      child: ElevatedButton(
-        onPressed: _isSaving ? null : _saveReminder,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF8FA9C9),
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          elevation: 4,
-        ),
-        child: _isSaving
-            ? const SizedBox(
-          height: 20,
-          width: 20,
-          child: CircularProgressIndicator(
-            color: Colors.white,
-            strokeWidth: 2,
-          ),
-        )
-            : const Text(
-          'Save Reminder',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
+          ],
         ),
       ),
     );

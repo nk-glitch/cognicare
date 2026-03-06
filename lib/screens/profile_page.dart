@@ -130,14 +130,16 @@ class _ProfilePageState extends State<ProfilePage>
       );
     }
 
-    final fullName =
-    '${firstName.trim()} ${lastName.trim()}'.trim();
-    final initials = '${firstName.isNotEmpty ? firstName[0] : ''}${lastName.isNotEmpty ? lastName[0] : ''}'
+    final fullName = '${firstName.trim()} ${lastName.trim()}'.trim();
+    final initials =
+    '${firstName.isNotEmpty ? firstName[0] : ''}${lastName.isNotEmpty ? lastName[0] : ''}'
         .toUpperCase();
     final roleLabel = widget.isCaretaker ? 'Caretaker' : 'Patient';
 
     return Scaffold(
       backgroundColor: const Color(0xFFFAF6F4),
+      bottomNavigationBar:
+      widget.isCaretaker ? _buildBottomNav() : null,
       body: Stack(
         children: [
           // Background blobs
@@ -310,19 +312,16 @@ class _ProfilePageState extends State<ProfilePage>
                               ),
                               child: Row(
                                 children: [
-                                  // Initials avatar
                                   Container(
                                     width: 64,
                                     height: 64,
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFF4E4E1),
+                                    decoration: const BoxDecoration(
+                                      color: Color(0xFFF4E4E1),
                                       shape: BoxShape.circle,
                                     ),
                                     child: Center(
                                       child: Text(
-                                        initials.isNotEmpty
-                                            ? initials
-                                            : '?',
+                                        initials.isNotEmpty ? initials : '?',
                                         style: const TextStyle(
                                           fontSize: 22,
                                           fontWeight: FontWeight.w700,
@@ -351,7 +350,6 @@ class _ProfilePageState extends State<ProfilePage>
                                           ),
                                         ),
                                         const SizedBox(height: 6),
-                                        // Role badge
                                         Container(
                                           padding: const EdgeInsets.symmetric(
                                               horizontal: 10, vertical: 4),
@@ -380,11 +378,9 @@ class _ProfilePageState extends State<ProfilePage>
 
                             const SizedBox(height: 24),
 
-                            // ── Section label ────────────────────
                             const _SectionLabel(label: 'ACCOUNT INFO'),
                             const SizedBox(height: 10),
 
-                            // ── Info card ────────────────────────
                             Container(
                               width: double.infinity,
                               decoration: BoxDecoration(
@@ -409,7 +405,7 @@ class _ProfilePageState extends State<ProfilePage>
                                         : 'Not provided',
                                     isFirst: true,
                                   ),
-                                  const _Divider(),
+                                  const _RowDivider(),
                                   _InfoRow(
                                     icon: Icons.phone_outlined,
                                     label: 'Phone',
@@ -418,7 +414,7 @@ class _ProfilePageState extends State<ProfilePage>
                                         : 'Not provided',
                                   ),
                                   if (!widget.isCaretaker) ...[
-                                    const _Divider(),
+                                    const _RowDivider(),
                                     _InfoRow(
                                       icon: Icons.home_outlined,
                                       label: 'Address',
@@ -435,7 +431,6 @@ class _ProfilePageState extends State<ProfilePage>
 
                             const SizedBox(height: 24),
 
-                            // ── Member since ─────────────────────
                             const _SectionLabel(label: 'MEMBERSHIP'),
                             const SizedBox(height: 10),
                             Container(
@@ -460,8 +455,7 @@ class _ProfilePageState extends State<ProfilePage>
                                     height: 38,
                                     decoration: BoxDecoration(
                                       color: const Color(0xFFF4E4E1),
-                                      borderRadius:
-                                      BorderRadius.circular(11),
+                                      borderRadius: BorderRadius.circular(11),
                                     ),
                                     child: const Icon(
                                       Icons.calendar_today_outlined,
@@ -509,6 +503,54 @@ class _ProfilePageState extends State<ProfilePage>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  // ── Bottom nav (caretaker only) ───────────────────────────────────────────
+  Widget _buildBottomNav() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFB07A6E).withOpacity(0.10),
+            blurRadius: 16,
+            offset: const Offset(0, -4),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _BottomNavItem(
+                icon: Icons.home_rounded,
+                label: 'Home',
+                onTap: () =>
+                    Navigator.of(context).pop(),
+              ),
+              _BottomNavItem(
+                icon: Icons.calendar_today_outlined,
+                label: 'Calendar',
+                onTap: () => Navigator.pop(context),
+              ),
+              _BottomNavItem(
+                icon: Icons.location_on_outlined,
+                label: 'Location',
+                onTap: () => Navigator.pop(context),
+              ),
+              _BottomNavItem(
+                icon: Icons.person_outline_rounded,
+                label: 'Profile',
+                active: true,
+                onTap: () {},
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -579,8 +621,8 @@ class _InfoRow extends StatelessWidget {
 }
 
 // ── Divider ───────────────────────────────────────────────────────────────────
-class _Divider extends StatelessWidget {
-  const _Divider();
+class _RowDivider extends StatelessWidget {
+  const _RowDivider();
 
   @override
   Widget build(BuildContext context) {
@@ -607,6 +649,51 @@ class _SectionLabel extends StatelessWidget {
         fontWeight: FontWeight.w700,
         color: Color(0xFF8D6E63),
         letterSpacing: 1.2,
+      ),
+    );
+  }
+}
+
+// ── Bottom nav item ───────────────────────────────────────────────────────────
+class _BottomNavItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool active;
+
+  const _BottomNavItem({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.active = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 24,
+            color: active
+                ? const Color(0xFF5A7A1A)
+                : const Color(0xFFBDB0AC),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: active
+                  ? const Color(0xFF5A7A1A)
+                  : const Color(0xFFBDB0AC),
+            ),
+          ),
+        ],
       ),
     );
   }
