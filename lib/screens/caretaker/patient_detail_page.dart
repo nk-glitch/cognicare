@@ -927,6 +927,7 @@ class _ReminderSheetState extends State<ReminderSheet> {
   DateTime? _selectedDate;
   TimeOfDay? _selectedTime;
   String _selectedRepeat = 'Once';
+  int? _missedAlertDelayMinutes = 5; // null = no caretaker alert
   bool _isSaving = false;
 
   static const _accent = Color(0xFF5A7A1A);
@@ -976,6 +977,7 @@ class _ReminderSheetState extends State<ReminderSheet> {
         'time': Timestamp.fromDate(reminderTime),
         'repeating': _selectedRepeat.toLowerCase(),
         'completed': false,
+        'missedAlertDelayMinutes': _missedAlertDelayMinutes,
         'createdAt': FieldValue.serverTimestamp(),
       });
 
@@ -1180,6 +1182,50 @@ class _ReminderSheetState extends State<ReminderSheet> {
                         onChanged: (v) {
                           if (v != null) setState(() => _selectedRepeat = v);
                         },
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _Field(
+                  label: 'Alert caretaker if missed after',
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFAF6F4),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                          color: const Color(0xFFEDE5E2), width: 1.5),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<int?>(
+                        value: _missedAlertDelayMinutes,
+                        isExpanded: true,
+                        icon: const Icon(Icons.keyboard_arrow_down_rounded,
+                            color: _subtext, size: 20),
+                        style: const TextStyle(
+                            fontSize: 14,
+                            color: _text,
+                            fontWeight: FontWeight.w500),
+                        dropdownColor: Colors.white,
+                        items: const [
+                          DropdownMenuItem(
+                              value: null, child: Text('No alert')),
+                          DropdownMenuItem(
+                              value: 1, child: Text('1 minute')),
+                          DropdownMenuItem(
+                              value: 3, child: Text('3 minutes')),
+                          DropdownMenuItem(
+                              value: 5, child: Text('5 minutes')),
+                          DropdownMenuItem(
+                              value: 10, child: Text('10 minutes')),
+                          DropdownMenuItem(
+                              value: 15, child: Text('15 minutes')),
+                          DropdownMenuItem(
+                              value: 30, child: Text('30 minutes')),
+                        ],
+                        onChanged: (v) =>
+                            setState(() => _missedAlertDelayMinutes = v),
                       ),
                     ),
                   ),

@@ -1110,6 +1110,7 @@ class _CalendarPageState extends State<CalendarPage>
     final descController = TextEditingController();
     TimeOfDay selectedTime = TimeOfDay.now();
     bool isSaving = false;
+    int? missedAlertDelayMinutes = 5; // null = no caretaker alert
 
     showDialog(
       context: context,
@@ -1238,6 +1239,68 @@ class _CalendarPageState extends State<CalendarPage>
                   ),
                 ),
 
+                const SizedBox(height: 14),
+
+                // Missed-alert delay picker
+                _dialogLabel('Alert caretaker if missed after'),
+                const SizedBox(height: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFAF6F4),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                        color: const Color(0xFFEDE5E2), width: 1.5),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<int?>(
+                      value: missedAlertDelayMinutes,
+                      isExpanded: true,
+                      icon: const Icon(Icons.keyboard_arrow_down_rounded,
+                          color: _subtext, size: 20),
+                      style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: _text),
+                      dropdownColor: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      items: const [
+                        DropdownMenuItem(
+                          value: null,
+                          child: Text('No alert'),
+                        ),
+                        DropdownMenuItem(
+                          value: 1,
+                          child: Text('1 minute'),
+                        ),
+                        DropdownMenuItem(
+                          value: 3,
+                          child: Text('3 minutes'),
+                        ),
+                        DropdownMenuItem(
+                          value: 5,
+                          child: Text('5 minutes'),
+                        ),
+                        DropdownMenuItem(
+                          value: 10,
+                          child: Text('10 minutes'),
+                        ),
+                        DropdownMenuItem(
+                          value: 15,
+                          child: Text('15 minutes'),
+                        ),
+                        DropdownMenuItem(
+                          value: 30,
+                          child: Text('30 minutes'),
+                        ),
+                      ],
+                      onChanged: (val) =>
+                          setDialogState(() => missedAlertDelayMinutes = val),
+                    ),
+                  ),
+                ),
+
                 const SizedBox(height: 24),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
@@ -1291,6 +1354,7 @@ class _CalendarPageState extends State<CalendarPage>
                               'time': Timestamp.fromDate(dt),
                               'completed': false,
                               'isSnoozed': false,
+                              'missedAlertDelayMinutes': missedAlertDelayMinutes,
                               'createdAt':
                               FieldValue.serverTimestamp(),
                             });

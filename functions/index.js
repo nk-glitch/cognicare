@@ -182,11 +182,14 @@ async function sendReminderNotification(db, docId, reminder, isSnoozed) {
 exports.checkMissedReminders = onSchedule('every 1 minutes', async (event) => {
     const db = admin.firestore();
     const now = admin.firestore.Timestamp.now();
-    const fiveMinutesAgo = admin.firestore.Timestamp.fromMillis(now.toMillis() - 5 * 60 * 1000);
+
+    // Query all overdue, incomplete, unalerted reminders (up to 24h ago to be safe)
+    const twentyFourHoursAgo = admin.firestore.Timestamp.fromMillis(now.toMillis() - 24 * 60 * 60 * 1000);
 
     try {
         const missedSnapshot = await db.collection('reminders')
-            .where('time', '<=', fiveMinutesAgo)
+            .where('time', '<=', now)
+            .where('time', '>=', twentyFourHoursAgo)
             .where('completed', '==', false)
             .get();
 
@@ -195,9 +198,20 @@ exports.checkMissedReminders = onSchedule('every 1 minutes', async (event) => {
         const promises = [];
         missedSnapshot.forEach(doc => {
             const reminder = doc.data();
-            if (!reminder.caretakerAlertSent) {
-                promises.push(alertCaretakers(db, doc.id, reminder));
-            }
+
+            // Skip if alert already sent
+            if (reminder.caretakerAlertSent) return;
+
+            // Skip if caretaker alerts are disabled for this reminder
+            const delayMinutes = reminder.missedAlertDelayMinutes;
+            if (delayMinutes === null || delayMinutes === undefined) return;
+
+            // Check if enough time has passed since the reminder was due
+            const dueMillis = reminder.time.toMillis();
+            const elapsedMinutes = (now.toMillis() - dueMillis) / 60000;
+            if (elapsedMinutes < delayMinutes) return;
+
+            promises.push(alertCaretakers(db, doc.id, reminder));
         });
 
         if (promises.length > 0) {
