@@ -3,7 +3,10 @@ import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'location_map_page.dart';
-import '../profile_page.dart';
+import 'patient_profile_page.dart';
+import 'patient_detail_page.dart';
+import 'caretaker_home_page.dart';
+
 
 class CalendarPage extends StatefulWidget {
   final String patientId;
@@ -293,7 +296,7 @@ class _CalendarPageState extends State<CalendarPage>
         children: [
           // Back button
           GestureDetector(
-            onTap: () => Navigator.pop(context),
+            onTap: () => Navigator.popUntil(context, (route) => route.settings.name == 'patientDetail'),
             child: Container(
               width: 38,
               height: 38,
@@ -994,7 +997,20 @@ class _CalendarPageState extends State<CalendarPage>
               _BottomNavItem(
                 icon: Icons.home_rounded,
                 label: 'Home',
-                onTap: () => Navigator.of(context).pop(),
+                onTap: () {
+                  Navigator.popUntil(context, (route) => route.isFirst);
+                  Navigator.push(
+                    context,
+                    PageRouteBuilder(
+                      pageBuilder: (_, __, ___) => PatientDetailPage(
+                        patientId: widget.patientId,
+                        patientName: _patientName,
+                      ),
+                      transitionDuration: Duration.zero,
+                      reverseTransitionDuration: Duration.zero,
+                    ),
+                  );
+                },
               ),
               _BottomNavItem(
                 icon: Icons.calendar_today_rounded,
@@ -1006,13 +1022,16 @@ class _CalendarPageState extends State<CalendarPage>
                 icon: Icons.location_on_outlined,
                 label: 'Location',
                 onTap: () {
-                  Navigator.pushReplacement(
+                  Navigator.popUntil(context, (route) => route.isFirst);
+                  Navigator.push(
                     context,
-                    MaterialPageRoute(
-                      builder: (_) => LocationMapPage(
+                    PageRouteBuilder(
+                      pageBuilder: (_, __, ___) => LocationMapPage(
                         patientId: widget.patientId,
                         patientName: _patientName,
                       ),
+                      transitionDuration: Duration.zero,
+                      reverseTransitionDuration: Duration.zero,
                     ),
                   );
                 },
@@ -1020,11 +1039,20 @@ class _CalendarPageState extends State<CalendarPage>
               _BottomNavItem(
                 icon: Icons.person_outline_rounded,
                 label: 'Profile',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (_) => const ProfilePage(isCaretaker: true)),
-                ),
+                onTap: () {
+                  Navigator.popUntil(context, (route) => route.isFirst);
+                  Navigator.push(
+                    context,
+                    PageRouteBuilder(
+                      pageBuilder: (_, __, ___) => PatientProfilePage(
+                        patientId: widget.patientId,
+                        patientName: _patientName,
+                      ),
+                      transitionDuration: Duration.zero,
+                      reverseTransitionDuration: Duration.zero,
+                    ),
+                  );
+                },
               ),
             ],
           ),

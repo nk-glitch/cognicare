@@ -1,11 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/auth_service.dart';
 import 'auth/login_page.dart';
+import 'caretaker/location_map_page.dart';
+import 'caretaker/calendar_page.dart';
+import 'caretaker/caretaker_home_page.dart';
 
 class ProfilePage extends StatefulWidget {
   final bool isCaretaker;
-  const ProfilePage({super.key, required this.isCaretaker});
+  // When set, shows the patient's profile instead of the logged-in user's
+  final String? viewingPatientId;
+  final String? viewingPatientName;
+
+  const ProfilePage({
+    super.key,
+    required this.isCaretaker,
+    this.viewingPatientId,
+    this.viewingPatientName,
+  });
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
@@ -14,6 +27,7 @@ class ProfilePage extends StatefulWidget {
 class _ProfilePageState extends State<ProfilePage>
     with SingleTickerProviderStateMixin {
   final AuthService _authService = AuthService();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   String firstName = '';
   String lastName = '';
@@ -50,6 +64,41 @@ class _ProfilePageState extends State<ProfilePage>
 
   Future<void> _loadUserData() async {
     try {
+      // Viewing a patient's profile from the caretaker's context
+      if (widget.viewingPatientId != null) {
+        // Fetch address from patients collection
+        final patientDoc = await _firestore
+            .collection('patients')
+            .doc(widget.viewingPatientId)
+            .get();
+        if (patientDoc.exists) {
+          final data = patientDoc.data()!;
+          firstName = data['firstName'] ?? widget.viewingPatientName ?? '';
+          lastName = data['lastName'] ?? '';
+          address = data['address'] ?? '';
+        } else {
+          final parts = (widget.viewingPatientName ?? '').split(' ');
+          firstName = parts.isNotEmpty ? parts.first : '';
+          lastName = parts.length > 1 ? parts.sublist(1).join(' ') : '';
+        }
+
+        // Fetch email and phone from users collection
+        final userDoc = await _firestore
+            .collection('users')
+            .doc(widget.viewingPatientId)
+            .get();
+        if (userDoc.exists) {
+          final data = userDoc.data()!;
+          email = data['email'] ?? '';
+          phone = data['phone'] ?? '';
+          // Also grab name from users if not found in patients
+          if (firstName.isEmpty) firstName = data['firstName'] ?? '';
+          if (lastName.isEmpty) lastName = data['lastName'] ?? '';
+        }
+        return;
+      }
+
+      // Normal flow: load the logged-in user's own profile
       final user = _authService.currentUser;
       if (user != null) {
         email = user.email ?? '';
@@ -134,7 +183,8 @@ class _ProfilePageState extends State<ProfilePage>
     final initials =
     '${firstName.isNotEmpty ? firstName[0] : ''}${lastName.isNotEmpty ? lastName[0] : ''}'
         .toUpperCase();
-    final roleLabel = widget.isCaretaker ? 'Caretaker' : 'Patient';
+    final isViewingPatient = widget.viewingPatientId != null;
+    final roleLabel = isViewingPatient ? 'Patient' : (widget.isCaretaker ? 'Caretaker' : 'Patient');
 
     return Scaffold(
       backgroundColor: const Color(0xFFFAF6F4),
@@ -181,7 +231,7 @@ class _ProfilePageState extends State<ProfilePage>
                       child: Row(
                         children: [
                           GestureDetector(
-                            onTap: () => Navigator.pop(context),
+                            onTap: () => Navigator.popUntil(context, (route) => route.isFirst),
                             child: Container(
                               width: 40,
                               height: 40,
@@ -246,41 +296,42 @@ class _ProfilePageState extends State<ProfilePage>
                             ],
                           ),
                           const Spacer(),
-                          // Sign out button
-                          GestureDetector(
-                            onTap: _showSignOutConfirmation,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(20),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: const Color(0xFFB07A6E)
-                                        .withOpacity(0.10),
-                                    blurRadius: 10,
-                                    offset: const Offset(0, 3),
-                                  ),
-                                ],
-                              ),
-                              child: Row(
-                                children: const [
-                                  Icon(Icons.logout_rounded,
-                                      size: 15, color: Color(0xFF8D6E63)),
-                                  SizedBox(width: 6),
-                                  Text(
-                                    'Sign out',
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: Color(0xFF8D6E63),
+                          // Sign out button — hidden when viewing a patient's profile
+                          if (!isViewingPatient)
+                            GestureDetector(
+                              onTap: _showSignOutConfirmation,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(20),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFFB07A6E)
+                                          .withOpacity(0.10),
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 3),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
+                                child: Row(
+                                  children: const [
+                                    Icon(Icons.logout_rounded,
+                                        size: 15, color: Color(0xFF8D6E63)),
+                                    SizedBox(width: 6),
+                                    Text(
+                                      'Sign out',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: Color(0xFF8D6E63),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
-                          ),
                         ],
                       ),
                     ),
@@ -413,7 +464,7 @@ class _ProfilePageState extends State<ProfilePage>
                                         ? phone
                                         : 'Not provided',
                                   ),
-                                  if (!widget.isCaretaker) ...[
+                                  if (!widget.isCaretaker || isViewingPatient) ...[
                                     const _RowDivider(),
                                     _InfoRow(
                                       icon: Icons.home_outlined,
@@ -529,18 +580,44 @@ class _ProfilePageState extends State<ProfilePage>
               _BottomNavItem(
                 icon: Icons.home_rounded,
                 label: 'Home',
-                onTap: () =>
-                    Navigator.of(context).pop(),
+                onTap: () => Navigator.of(context).pop(),
               ),
               _BottomNavItem(
                 icon: Icons.calendar_today_outlined,
                 label: 'Calendar',
-                onTap: () => Navigator.pop(context),
+                onTap: () {
+                  Navigator.popUntil(context, (route) => route.isFirst);
+                  Navigator.push(
+                    context,
+                    PageRouteBuilder(
+                      pageBuilder: (_, __, ___) => CalendarPage(
+                        patientId: widget.viewingPatientId ?? '',
+                        patientName: widget.viewingPatientName ?? '',
+                        isCaretaker: true,
+                      ),
+                      transitionDuration: Duration.zero,
+                      reverseTransitionDuration: Duration.zero,
+                    ),
+                  );
+                },
               ),
               _BottomNavItem(
                 icon: Icons.location_on_outlined,
                 label: 'Location',
-                onTap: () => Navigator.pop(context),
+                onTap: () {
+                  Navigator.popUntil(context, (route) => route.isFirst);
+                  Navigator.push(
+                    context,
+                    PageRouteBuilder(
+                      pageBuilder: (_, __, ___) => LocationMapPage(
+                        patientId: widget.viewingPatientId ?? '',
+                        patientName: widget.viewingPatientName ?? '',
+                      ),
+                      transitionDuration: Duration.zero,
+                      reverseTransitionDuration: Duration.zero,
+                    ),
+                  );
+                },
               ),
               _BottomNavItem(
                 icon: Icons.person_outline_rounded,

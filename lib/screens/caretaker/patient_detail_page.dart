@@ -3,7 +3,8 @@ import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'location_map_page.dart';
 import 'calendar_page.dart';
-import '../profile_page.dart';
+import 'caretaker_home_page.dart';
+import 'patient_profile_page.dart';
 
 class PatientDetailPage extends StatefulWidget {
   final String patientId;
@@ -727,39 +728,48 @@ class _PatientDetailPageState extends State<PatientDetailPage>
               _NavItem(
                 icon: Icons.calendar_today_outlined,
                 label: 'Calendar',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => CalendarPage(
+                onTap: () {
+                  Navigator.popUntil(context, (route) => route.isFirst);
+                  Navigator.push(context, PageRouteBuilder(
+                    pageBuilder: (_, __, ___) => CalendarPage(
                       patientId: widget.patientId,
                       patientName: widget.patientName,
                       isCaretaker: true,
                     ),
-                  ),
-                ),
+                    transitionDuration: Duration.zero,
+                    reverseTransitionDuration: Duration.zero,
+                  ));
+                },
               ),
               _NavItem(
                 icon: Icons.location_on_outlined,
                 label: 'Location',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => LocationMapPage(
+                onTap: () {
+                  Navigator.popUntil(context, (route) => route.isFirst);
+                  Navigator.push(context, PageRouteBuilder(
+                    pageBuilder: (_, __, ___) => LocationMapPage(
                       patientId: widget.patientId,
                       patientName: widget.patientName,
                     ),
-                  ),
-                ),
+                    transitionDuration: Duration.zero,
+                    reverseTransitionDuration: Duration.zero,
+                  ));
+                },
               ),
               _NavItem(
                 icon: Icons.person_outline_rounded,
                 label: 'Profile',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const ProfilePage(isCaretaker: true),
-                  ),
-                ),
+                onTap: () {
+                  Navigator.popUntil(context, (route) => route.isFirst);
+                  Navigator.push(context, PageRouteBuilder(
+                    pageBuilder: (_, __, ___) => PatientProfilePage(
+                      patientId: widget.patientId,
+                      patientName: widget.patientName,
+                    ),
+                    transitionDuration: Duration.zero,
+                    reverseTransitionDuration: Duration.zero,
+                  ));
+                },
               ),
             ],
           ),
