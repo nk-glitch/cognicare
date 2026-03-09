@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'dart:async';
+import '../../services/notification_service.dart';
 import 'location_map_page.dart';
 import 'calendar_page.dart';
 import 'caretaker_home_page.dart';
@@ -32,6 +35,18 @@ class _PatientDetailPageState extends State<PatientDetailPage>
   List<Map<String, dynamic>> _reminders = [];
   bool _isLoading = true;
 
+  // Heart rate state
+  int? _heartRate;
+  DateTime? _heartRateUpdatedAt;
+  bool _hasWatchData = false; // True once Firestore confirms the field exists
+  StreamSubscription<DocumentSnapshot>? _patientSub;
+
+  // HR alert state — prevents spamming the caretaker on every 5-min sync
+  static const _hrElevatedThreshold = 100; // bpm — above normal resting range
+  static const _hrAlertCooldown = Duration(minutes: 10);
+  bool _hrCurrentlyElevated = false;
+  DateTime? _lastHrAlertTime;
+
   // Colors
   static const _bg = Color(0xFFF7F4F2);
   static const _card = Colors.white;
@@ -62,19 +77,118 @@ class _PatientDetailPageState extends State<PatientDetailPage>
   @override
   void dispose() {
     _animController.dispose();
+    _patientSub?.cancel();
     super.dispose();
   }
 
-  Future<void> _loadPatientData() async {
-    try {
-      final patientDoc = await _firestore
-          .collection('patients')
-          .doc(widget.patientId)
-          .get();
-      if (patientDoc.exists) {
-        _patientData = patientDoc.data();
-      }
+  // ── Notifications ──────────────────────────────────────────────────────────
 
+  /// Called every time a new heart rate value arrives from Firestore.
+  /// Fires a notification only on the leading edge of an elevated episode
+  /// and at most once per [_hrAlertCooldown] to avoid repeated alerts.
+  Future<void> _checkHeartRateAlert(int bpm) async {
+    final isElevated = bpm > _hrElevatedThreshold;
+
+    if (!isElevated) {
+      _hrCurrentlyElevated = false;
+      return;
+    }
+
+    // Already elevated and within cooldown window — stay quiet
+    if (_hrCurrentlyElevated) {
+      final lastAlert = _lastHrAlertTime;
+      if (lastAlert != null &&
+          DateTime.now().difference(lastAlert) < _hrAlertCooldown) {
+        return;
+      }
+    }
+
+    // New elevated episode (or cooldown expired) — fire the alert
+    _hrCurrentlyElevated = true;
+    _lastHrAlertTime     = DateTime.now();
+
+    // In-app banner — shown when the caretaker has the page open
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 6),
+          backgroundColor: const Color(0xFFE57373),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(16),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14)),
+          content: Row(
+            children: [
+              const Icon(Icons.favorite_rounded,
+                  color: Colors.white, size: 18),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  '${widget.patientName}\'s heart rate is elevated at $bpm bpm',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // System notification — reuses the already-initialised plugin instance
+    // from NotificationService (no double-init needed)
+    await NotificationService.flutterLocalNotificationsPlugin.show(
+      id:    widget.patientId.hashCode,
+      title: '❤️ Elevated Heart Rate',
+      body:  '${widget.patientName}\'s heart rate is $bpm bpm — above the normal resting range.',
+      notificationDetails: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'reminder_channel',        // reuse the existing high-importance channel
+          'Reminder Notifications',
+          channelDescription: 'Notifications for medication and task reminders',
+          importance: Importance.high,
+          priority: Priority.high,
+          playSound: true,
+          enableVibration: true,
+        ),
+      ),
+    );
+  }
+
+  // ── Data ───────────────────────────────────────────────────────────────────
+
+  Future<void> _loadPatientData() async {
+    // Cancel any existing subscription first (e.g. on refresh)
+    await _patientSub?.cancel();
+
+    // Real-time listener on the patient document so heart rate updates live
+    _patientSub = _firestore
+        .collection('patients')
+        .doc(widget.patientId)
+        .snapshots()
+        .listen((snap) {
+      if (!mounted) return;
+      if (snap.exists) {
+        final data = snap.data()!;
+        final newHr = data['heartRate'] as int?;
+        setState(() {
+          _patientData = data;
+          _heartRate = newHr;
+          final ts = data['heartRateUpdatedAt'] as Timestamp?;
+          _heartRateUpdatedAt = ts?.toDate();
+          // Field presence determines whether a watch has ever synced
+          _hasWatchData = data.containsKey('heartRate');
+        });
+        // Check after setState so widget.patientName is available for the banner
+        if (newHr != null) _checkHeartRateAlert(newHr);
+      }
+    }, onError: (e) => debugPrint('Patient stream error: $e'));
+
+    // Reminders are still a one-shot load (refresh pulls new data)
+    try {
       final remindersSnapshot = await _firestore
           .collection('reminders')
           .where('patientId', isEqualTo: widget.patientId)
@@ -191,6 +305,8 @@ class _PatientDetailPageState extends State<PatientDetailPage>
                             CrossAxisAlignment.start,
                             children: [
                               _buildPatientHeader(),
+                              const SizedBox(height: 16),
+                              _buildHeartRateCard(),
                               const SizedBox(height: 20),
                               _buildRemindersCard(),
                               const SizedBox(height: 20),
@@ -385,6 +501,168 @@ class _PatientDetailPageState extends State<PatientDetailPage>
                     fontWeight: FontWeight.w500),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Heart rate card ────────────────────────────────────────────────────────
+  Widget _buildHeartRateCard() {
+    // Build a human-readable "last updated" string
+    String lastUpdated = '';
+    if (_heartRateUpdatedAt != null) {
+      final diff = DateTime.now().difference(_heartRateUpdatedAt!);
+      if (diff.inMinutes < 1) {
+        lastUpdated = 'Just now';
+      } else if (diff.inMinutes < 60) {
+        lastUpdated = '${diff.inMinutes}m ago';
+      } else if (diff.inHours < 24) {
+        lastUpdated = '${diff.inHours}h ago';
+      } else {
+        lastUpdated = DateFormat('MMM d, h:mm a').format(_heartRateUpdatedAt!);
+      }
+    }
+
+    final bool noWatch   = !_hasWatchData;
+    final bool elevated  = (_heartRate ?? 0) > _hrElevatedThreshold;
+
+    // Colours shift to warning red when HR is elevated
+    final iconBg    = noWatch
+        ? const Color(0xFFF0EBE8)
+        : elevated
+        ? const Color(0xFFFFEBEB)
+        : _roseSoft;
+    final iconColor = noWatch
+        ? _subtext
+        : elevated
+        ? const Color(0xFFE57373)
+        : _rose;
+    final bpmColor  = elevated ? const Color(0xFFE57373) : _rose;
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: _card,
+        borderRadius: BorderRadius.circular(22),
+        border: elevated
+            ? Border.all(color: const Color(0xFFE57373).withOpacity(0.40), width: 1.5)
+            : null,
+        boxShadow: [
+          BoxShadow(
+            color: elevated
+                ? const Color(0xFFE57373).withOpacity(0.15)
+                : const Color(0xFFB07A6E).withOpacity(0.10),
+            blurRadius: 30,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: iconBg,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(
+              noWatch ? Icons.watch_off_outlined : Icons.favorite_rounded,
+              color: iconColor,
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: noWatch
+                ? const Text(
+              'Patient does not have a watch linked to this account.',
+              style: TextStyle(
+                fontSize: 13,
+                color: _subtext,
+                fontStyle: FontStyle.italic,
+                height: 1.4,
+              ),
+            )
+                : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Text(
+                      'Heart Rate',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: _subtext,
+                      ),
+                    ),
+                    if (elevated) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 7, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFEBEB),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Text(
+                          '⚠ Elevated',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFFE57373),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      _heartRate != null ? '$_heartRate' : '--',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.w800,
+                        color: bpmColor,
+                        letterSpacing: -0.5,
+                        height: 1.0,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 3),
+                      child: Text(
+                        'bpm',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: bpmColor,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (lastUpdated.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    elevated
+                        ? 'Updated $lastUpdated · above normal (>$_hrElevatedThreshold bpm)'
+                        : 'Updated $lastUpdated · syncs every 5 min',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: elevated
+                          ? const Color(0xFFE57373).withOpacity(0.8)
+                          : _subtext,
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ),
         ],
       ),

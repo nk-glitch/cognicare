@@ -63,6 +63,7 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
 
   // ── Subscriptions / timers ──────────────────────────────────────────────────
   Timer?                             _checkTimer;
+  Timer?                             _hrUploadTimer;
   StreamSubscription<QuerySnapshot>? _reminderSub;
 
   // ── Animation controllers ───────────────────────────────────────────────────
@@ -96,6 +97,16 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
     Future.delayed(
         const Duration(seconds: 2), () { if (mounted) _checkDue(); });
 
+    // Upload heart rate to Firestore every 5 minutes
+    _hrUploadTimer = Timer.periodic(
+      const Duration(minutes: 5),
+          (_) { if (mounted) _uploadHeartRate(); },
+    );
+    // Also attempt an upload shortly after launch once a reading arrives
+    Future.delayed(const Duration(seconds: 30), () {
+      if (mounted) _uploadHeartRate();
+    });
+
     NotificationService.onNotificationTap = _triggerAlert;
   }
 
@@ -106,6 +117,7 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
     _alertShakeCtrl.dispose();
     _swipeCtrl.dispose();
     _checkTimer?.cancel();
+    _hrUploadTimer?.cancel();
     _reminderSub?.cancel();
     _hrSub?.cancel();
     super.dispose();
@@ -151,11 +163,38 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
     try {
       _hrSub = _hrChannel.receiveBroadcastStream().listen(
             (v) {
-          if (mounted && v is int && v > 0) setState(() => _heartRate = v);
+          if (mounted && v is int && v > 0) {
+            final isFirst = _heartRate == null;
+            setState(() => _heartRate = v);
+            // Upload immediately on the very first reading so caretaker
+            // sees data as soon as the watch connects, without waiting 5 min.
+            if (isFirst) _uploadHeartRate();
+          }
         },
         onError: (e) => debugPrint('hr: $e'),
       );
     } catch (e) { debugPrint('initHealth: $e'); }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Heart rate upload
+  // ─────────────────────────────────────────────────────────────────────────
+
+  Future<void> _uploadHeartRate() async {
+    // Skip silently if no reading has been received from the sensor yet.
+    if (_heartRate == null) return;
+    try {
+      await _db.collection('patients').doc(widget.patientId).set(
+        {
+          'heartRate': _heartRate,
+          'heartRateUpdatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true), // Never overwrites other patient fields
+      );
+      debugPrint('HR uploaded: $_heartRate bpm');
+    } catch (e) {
+      debugPrint('HR upload failed: $e');
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────
