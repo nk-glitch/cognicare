@@ -287,14 +287,17 @@ class _CaretakerHomePageState extends State<CaretakerHomePage>
           // Logo + wordmark
           Row(
             children: [
-              Image.asset(
-                'assets/images/logo_no_text.png',
-                width: 26,
-                height: 26,
-                errorBuilder: (_, __, ___) => const Icon(
-                  Icons.favorite_rounded,
-                  color: _rose,
-                  size: 22,
+              ColoredBox(
+                color: _bg,
+                child: Image.asset(
+                  'assets/images/logo_no_text.png',
+                  width: 26,
+                  height: 26,
+                  errorBuilder: (_, __, ___) => const Icon(
+                    Icons.favorite_rounded,
+                    color: _rose,
+                    size: 22,
+                  ),
                 ),
               ),
               const SizedBox(width: 7),
@@ -539,6 +542,7 @@ class _CaretakerHomePageState extends State<CaretakerHomePage>
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(
+                  settings: const RouteSettings(name: '/patient_detail'),
                   builder: (_) => PatientDetailPage(
                     patientId: patients[i]['patientId'] as String,
                     patientName: patients[i]['name'] as String,

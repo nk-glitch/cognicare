@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import '../../services/location_service.dart';
@@ -207,35 +208,38 @@ class _LocationMapPageState extends State<LocationMapPage>
         children: [
           // Back
           GestureDetector(
-            onTap: () => Navigator.popUntil(context, (route) => route.settings.name == 'patientDetail'),
+            onTap: () => Navigator.pop(context),
             child: Container(
-              width: 38,
-              height: 38,
+              width: 40,
+              height: 40,
               decoration: BoxDecoration(
                 color: _card,
-                shape: BoxShape.circle,
+                borderRadius: BorderRadius.circular(12),
                 boxShadow: [
                   BoxShadow(
                     color: const Color(0xFFB07A6E).withOpacity(0.12),
-                    blurRadius: 10,
+                    blurRadius: 12,
                     offset: const Offset(0, 4),
                   ),
                 ],
               ),
               child: const Icon(Icons.arrow_back_ios_new_rounded,
-                  color: _rose, size: 16),
+                  color: _text, size: 18),
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 14),
           // Logo + wordmark
           Row(
             children: [
-              Image.asset(
-                'assets/images/logo_no_text.png',
-                width: 26,
-                height: 26,
-                errorBuilder: (_, __, ___) =>
-                const Icon(Icons.favorite_rounded, color: _rose, size: 22),
+              ColoredBox(
+                color: _bg,
+                child: Image.asset(
+                  'assets/images/logo_no_text.png',
+                  width: 26,
+                  height: 26,
+                  errorBuilder: (_, __, ___) =>
+                  const Icon(Icons.favorite_rounded, color: _rose, size: 22),
+                ),
               ),
               const SizedBox(width: 7),
               RichText(
@@ -265,24 +269,27 @@ class _LocationMapPageState extends State<LocationMapPage>
             ],
           ),
           const Spacer(),
-          // Refresh
-          GestureDetector(
-            onTap: _retryLoadLocation,
-            child: Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: _card,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFFB07A6E).withOpacity(0.12),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
+          // Date pill
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: _card,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFFB07A6E).withOpacity(0.10),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Text(
+              DateFormat('MMM d').format(DateTime.now()),
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: _subtext,
               ),
-              child: const Icon(Icons.refresh_rounded, color: _rose, size: 18),
             ),
           ),
         ],
@@ -323,50 +330,41 @@ class _LocationMapPageState extends State<LocationMapPage>
               ],
             ),
           ),
-          // Status pill
-          Container(
-            padding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(
-              color: _card,
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFFB07A6E).withOpacity(0.10),
-                  blurRadius: 14,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 7,
-                  height: 7,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: _noLocationAvailable || _isLoading
-                        ? _rose
-                        : _accent,
+          // Refresh button
+          GestureDetector(
+            onTap: _retryLoadLocation,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: _card,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFFB07A6E).withOpacity(0.10),
+                    blurRadius: 14,
+                    offset: const Offset(0, 4),
                   ),
-                ),
-                const SizedBox(width: 7),
-                Text(
-                  _isLoading
-                      ? 'Locating…'
-                      : _noLocationAvailable
-                      ? 'Unavailable'
-                      : 'Live',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: _noLocationAvailable || _isLoading
-                        ? _rose
-                        : _accent,
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.refresh_rounded,
+                    size: 15,
+                    color: _isLoading ? _rose : _accent,
                   ),
-                ),
-              ],
+                  const SizedBox(width: 6),
+                  Text(
+                    'Refresh',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: _isLoading ? _rose : _accent,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -688,6 +686,7 @@ class _LocationMapPageState extends State<LocationMapPage>
 
 
   // ── Bottom nav (shared caretaker bar) ────────────────────────────────────
+
   Widget _buildBottomNav() {
     return Container(
       decoration: BoxDecoration(
@@ -710,37 +709,25 @@ class _LocationMapPageState extends State<LocationMapPage>
                 icon: Icons.home_rounded,
                 label: 'Home',
                 onTap: () {
-                  Navigator.popUntil(context, (route) => route.isFirst);
-                  Navigator.push(
-                    context,
-                    PageRouteBuilder(
-                      pageBuilder: (_, __, ___) => PatientDetailPage(
-                        patientId: widget.patientId,
-                        patientName: widget.patientName,
-                      ),
-                      transitionDuration: Duration.zero,
-                      reverseTransitionDuration: Duration.zero,
+                  Navigator.pushReplacement(context, InstantPushMaterialRoute(
+                    builder: (_) => PatientDetailPage(
+                      patientId: widget.patientId,
+                      patientName: widget.patientName,
                     ),
-                  );
+                  ));
                 },
               ),
               _BottomNavItem(
                 icon: Icons.calendar_today_outlined,
                 label: 'Calendar',
                 onTap: () {
-                  Navigator.popUntil(context, (route) => route.isFirst);
-                  Navigator.push(
-                    context,
-                    PageRouteBuilder(
-                      pageBuilder: (_, __, ___) => CalendarPage(
-                        patientId: widget.patientId,
-                        patientName: widget.patientName,
-                        isCaretaker: true,
-                      ),
-                      transitionDuration: Duration.zero,
-                      reverseTransitionDuration: Duration.zero,
+                  Navigator.pushReplacement(context, InstantPushMaterialRoute(
+                    builder: (_) => CalendarPage(
+                      patientId: widget.patientId,
+                      patientName: widget.patientName,
+                      isCaretaker: true,
                     ),
-                  );
+                  ));
                 },
               ),
               _BottomNavItem(
@@ -753,18 +740,12 @@ class _LocationMapPageState extends State<LocationMapPage>
                 icon: Icons.person_outline_rounded,
                 label: 'Profile',
                 onTap: () {
-                  Navigator.popUntil(context, (route) => route.isFirst);
-                  Navigator.push(
-                    context,
-                    PageRouteBuilder(
-                      pageBuilder: (_, __, ___) => PatientProfilePage(
-                        patientId: widget.patientId,
-                        patientName: widget.patientName,
-                      ),
-                      transitionDuration: Duration.zero,
-                      reverseTransitionDuration: Duration.zero,
+                  Navigator.pushReplacement(context, InstantPushMaterialRoute(
+                    builder: (_) => PatientProfilePage(
+                      patientId: widget.patientId,
+                      patientName: widget.patientName,
                     ),
-                  );
+                  ));
                 },
               ),
             ],

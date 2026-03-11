@@ -209,18 +209,18 @@ class _CalendarPageState extends State<CalendarPage>
           ),
 
           SafeArea(
-            child: _isLoading
-                ? const Center(
-                child: CircularProgressIndicator(color: _accent))
-                : FadeTransition(
-              opacity: _fadeAnimation,
-              child: SlideTransition(
-                position: _slideAnimation,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildTopBar(),
-                    Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildTopBar(),
+                Expanded(
+                  child: _isLoading
+                      ? const Center(
+                      child: CircularProgressIndicator(color: _accent))
+                      : FadeTransition(
+                    opacity: _fadeAnimation,
+                    child: SlideTransition(
+                      position: _slideAnimation,
                       child: RefreshIndicator(
                         onRefresh: _handleRefresh,
                         color: _accent,
@@ -278,11 +278,11 @@ class _CalendarPageState extends State<CalendarPage>
                         ),
                       ),
                     ),
-                  ],
-                ),
-              ),
-            ),
-          ),
+                  ),                // closes FadeTransition
+                ),                  // closes Expanded
+              ],                    // closes Column children
+            ),                      // closes Column
+          ),                        // closes SafeArea
         ],
       ),
     );
@@ -296,37 +296,40 @@ class _CalendarPageState extends State<CalendarPage>
         children: [
           // Back button
           GestureDetector(
-            onTap: () => Navigator.popUntil(context, (route) => route.settings.name == 'patientDetail'),
+            onTap: () => Navigator.pop(context),
             child: Container(
-              width: 38,
-              height: 38,
+              width: 40,
+              height: 40,
               decoration: BoxDecoration(
                 color: _card,
-                shape: BoxShape.circle,
+                borderRadius: BorderRadius.circular(12),
                 boxShadow: [
                   BoxShadow(
                     color: const Color(0xFFB07A6E).withOpacity(0.12),
-                    blurRadius: 10,
+                    blurRadius: 12,
                     offset: const Offset(0, 4),
                   ),
                 ],
               ),
               child: const Icon(Icons.arrow_back_ios_new_rounded,
-                  color: _rose, size: 16),
+                  color: _text, size: 18),
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 14),
           // Logo + wordmark
           Row(
             children: [
-              Image.asset(
-                'assets/images/logo_no_text.png',
-                width: 26,
-                height: 26,
-                errorBuilder: (_, __, ___) => const Icon(
-                  Icons.favorite_rounded,
-                  color: _rose,
-                  size: 22,
+              ColoredBox(
+                color: _bg,
+                child: Image.asset(
+                  'assets/images/logo_no_text.png',
+                  width: 26,
+                  height: 26,
+                  errorBuilder: (_, __, ___) => const Icon(
+                    Icons.favorite_rounded,
+                    color: _rose,
+                    size: 22,
+                  ),
                 ),
               ),
               const SizedBox(width: 7),
@@ -357,25 +360,27 @@ class _CalendarPageState extends State<CalendarPage>
             ],
           ),
           const Spacer(),
-          // Refresh
-          GestureDetector(
-            onTap: _handleRefresh,
-            child: Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: _card,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFFB07A6E).withOpacity(0.12),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
+          // Date pill
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: _card,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFFB07A6E).withOpacity(0.10),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Text(
+              DateFormat('MMM d').format(DateTime.now()),
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: _subtext,
               ),
-              child: const Icon(Icons.refresh_rounded,
-                  color: _rose, size: 18),
             ),
           ),
         ],
@@ -416,38 +421,6 @@ class _CalendarPageState extends State<CalendarPage>
               ],
             ),
           ),
-          // Event count pill
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(
-              color: _card,
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFFB07A6E).withOpacity(0.10),
-                  blurRadius: 14,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.event_note_rounded,
-                    size: 16, color: _accent),
-                const SizedBox(width: 6),
-                Text(
-                  '${_events.values.fold(0, (s, l) => s + l.length)} total',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: _accent,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 10),
           // Add reminder button
           GestureDetector(
             onTap: _showAddReminderDialog,
@@ -976,6 +949,7 @@ class _CalendarPageState extends State<CalendarPage>
 
 
   // ── Bottom nav (shared caretaker bar) ────────────────────────────────────
+
   Widget _buildBottomNav() {
     return Container(
       decoration: BoxDecoration(
@@ -998,18 +972,12 @@ class _CalendarPageState extends State<CalendarPage>
                 icon: Icons.home_rounded,
                 label: 'Home',
                 onTap: () {
-                  Navigator.popUntil(context, (route) => route.isFirst);
-                  Navigator.push(
-                    context,
-                    PageRouteBuilder(
-                      pageBuilder: (_, __, ___) => PatientDetailPage(
-                        patientId: widget.patientId,
-                        patientName: _patientName,
-                      ),
-                      transitionDuration: Duration.zero,
-                      reverseTransitionDuration: Duration.zero,
+                  Navigator.pushReplacement(context, InstantPushMaterialRoute(
+                    builder: (_) => PatientDetailPage(
+                      patientId: widget.patientId,
+                      patientName: _patientName,
                     ),
-                  );
+                  ));
                 },
               ),
               _BottomNavItem(
@@ -1022,36 +990,24 @@ class _CalendarPageState extends State<CalendarPage>
                 icon: Icons.location_on_outlined,
                 label: 'Location',
                 onTap: () {
-                  Navigator.popUntil(context, (route) => route.isFirst);
-                  Navigator.push(
-                    context,
-                    PageRouteBuilder(
-                      pageBuilder: (_, __, ___) => LocationMapPage(
-                        patientId: widget.patientId,
-                        patientName: _patientName,
-                      ),
-                      transitionDuration: Duration.zero,
-                      reverseTransitionDuration: Duration.zero,
+                  Navigator.pushReplacement(context, InstantPushMaterialRoute(
+                    builder: (_) => LocationMapPage(
+                      patientId: widget.patientId,
+                      patientName: _patientName,
                     ),
-                  );
+                  ));
                 },
               ),
               _BottomNavItem(
                 icon: Icons.person_outline_rounded,
                 label: 'Profile',
                 onTap: () {
-                  Navigator.popUntil(context, (route) => route.isFirst);
-                  Navigator.push(
-                    context,
-                    PageRouteBuilder(
-                      pageBuilder: (_, __, ___) => PatientProfilePage(
-                        patientId: widget.patientId,
-                        patientName: _patientName,
-                      ),
-                      transitionDuration: Duration.zero,
-                      reverseTransitionDuration: Duration.zero,
+                  Navigator.pushReplacement(context, InstantPushMaterialRoute(
+                    builder: (_) => PatientProfilePage(
+                      patientId: widget.patientId,
+                      patientName: _patientName,
                     ),
-                  );
+                  ));
                 },
               ),
             ],

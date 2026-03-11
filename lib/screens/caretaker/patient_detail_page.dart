@@ -9,6 +9,22 @@ import 'calendar_page.dart';
 import 'caretaker_home_page.dart';
 import 'patient_profile_page.dart';
 
+// MaterialPageRoute that appears instantly but pops with the standard
+// MaterialPageRoute slide — identical to the patient detail → caretaker home animation.
+class InstantPushMaterialRoute<T> extends MaterialPageRoute<T> {
+  InstantPushMaterialRoute({required super.builder});
+
+  @override
+  Widget buildTransitions(BuildContext context, Animation<double> animation,
+      Animation<double> secondaryAnimation, Widget child) {
+    if (animation.status == AnimationStatus.forward ||
+        animation.status == AnimationStatus.dismissed) {
+      return child; // instant push — no animation
+    }
+    return super.buildTransitions(context, animation, secondaryAnimation, child);
+  }
+}
+
 class PatientDetailPage extends StatefulWidget {
   final String patientId;
   final String patientName;
@@ -355,29 +371,48 @@ class _PatientDetailPageState extends State<PatientDetailPage>
             ),
           ),
           const SizedBox(width: 14),
-          RichText(
-            text: const TextSpan(
-              children: [
-                TextSpan(
-                  text: 'Cogni',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w300,
-                    color: Color(0xFF5D4037),
-                    letterSpacing: -0.5,
+          // Logo + wordmark
+          Row(
+            children: [
+              ColoredBox(
+                color: _bg,
+                child: Image.asset(
+                  'assets/images/logo_no_text.png',
+                  width: 26,
+                  height: 26,
+                  errorBuilder: (_, __, ___) => const Icon(
+                    Icons.favorite_rounded,
+                    color: Color(0xFFD4A5A5),
+                    size: 22,
                   ),
                 ),
-                TextSpan(
-                  text: 'Care',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF5D4037),
-                    letterSpacing: -0.5,
-                  ),
+              ),
+              const SizedBox(width: 7),
+              RichText(
+                text: const TextSpan(
+                  children: [
+                    TextSpan(
+                      text: 'Cogni',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w300,
+                        color: Color(0xFF5D4037),
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                    TextSpan(
+                      text: 'Care',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF5D4037),
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
           const Spacer(),
           Container(
@@ -1007,15 +1042,12 @@ class _PatientDetailPageState extends State<PatientDetailPage>
                 icon: Icons.calendar_today_outlined,
                 label: 'Calendar',
                 onTap: () {
-                  Navigator.popUntil(context, (route) => route.isFirst);
-                  Navigator.push(context, PageRouteBuilder(
-                    pageBuilder: (_, __, ___) => CalendarPage(
+                  Navigator.pushReplacement(context, InstantPushMaterialRoute(
+                    builder: (_) => CalendarPage(
                       patientId: widget.patientId,
                       patientName: widget.patientName,
                       isCaretaker: true,
                     ),
-                    transitionDuration: Duration.zero,
-                    reverseTransitionDuration: Duration.zero,
                   ));
                 },
               ),
@@ -1023,14 +1055,11 @@ class _PatientDetailPageState extends State<PatientDetailPage>
                 icon: Icons.location_on_outlined,
                 label: 'Location',
                 onTap: () {
-                  Navigator.popUntil(context, (route) => route.isFirst);
-                  Navigator.push(context, PageRouteBuilder(
-                    pageBuilder: (_, __, ___) => LocationMapPage(
+                  Navigator.pushReplacement(context, InstantPushMaterialRoute(
+                    builder: (_) => LocationMapPage(
                       patientId: widget.patientId,
                       patientName: widget.patientName,
                     ),
-                    transitionDuration: Duration.zero,
-                    reverseTransitionDuration: Duration.zero,
                   ));
                 },
               ),
@@ -1038,14 +1067,11 @@ class _PatientDetailPageState extends State<PatientDetailPage>
                 icon: Icons.person_outline_rounded,
                 label: 'Profile',
                 onTap: () {
-                  Navigator.popUntil(context, (route) => route.isFirst);
-                  Navigator.push(context, PageRouteBuilder(
-                    pageBuilder: (_, __, ___) => PatientProfilePage(
+                  Navigator.pushReplacement(context, InstantPushMaterialRoute(
+                    builder: (_) => PatientProfilePage(
                       patientId: widget.patientId,
                       patientName: widget.patientName,
                     ),
-                    transitionDuration: Duration.zero,
-                    reverseTransitionDuration: Duration.zero,
                   ));
                 },
               ),

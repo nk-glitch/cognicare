@@ -84,12 +84,10 @@ class _PatientProfilePageState extends State<PatientProfilePage>
     }
   }
 
+
   void _goTo(Widget page) {
-    Navigator.popUntil(context, (route) => route.isFirst);
-    Navigator.push(context, PageRouteBuilder(
-      pageBuilder: (_, __, ___) => page,
-      transitionDuration: Duration.zero,
-      reverseTransitionDuration: Duration.zero,
+    Navigator.pushReplacement(context, InstantPushMaterialRoute(
+      builder: (_) => page,
     ));
   }
 
@@ -114,33 +112,42 @@ class _PatientProfilePageState extends State<PatientProfilePage>
                   decoration: BoxDecoration(shape: BoxShape.circle,
                       color: _accent.withOpacity(0.07)))),
           SafeArea(
-            child: FadeTransition(
-              opacity: _fadeAnimation,
-              child: SlideTransition(
-                position: _slideAnimation,
-                child: Column(
-                  children: [
-                    // Top bar
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-                      child: Row(
+            child: Column(
+              children: [
+                // Top bar — outside animation so it stays static on tab switch
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                  child: Row(
+                    children: [
+                      GestureDetector(
+                        onTap: () => Navigator.pop(context),
+                        child: Container(
+                          width: 40, height: 40,
+                          decoration: BoxDecoration(
+                            color: _card,
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: [BoxShadow(
+                                color: const Color(0xFFB07A6E).withOpacity(0.12),
+                                blurRadius: 12, offset: const Offset(0, 4))],
+                          ),
+                          child: const Icon(Icons.arrow_back_ios_new_rounded,
+                              color: _text, size: 18),
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Row(
                         children: [
-                          GestureDetector(
-                            onTap: () => Navigator.popUntil(context, (r) => r.isFirst),
-                            child: Container(
-                              width: 40, height: 40,
-                              decoration: BoxDecoration(
-                                color: _card,
-                                borderRadius: BorderRadius.circular(12),
-                                boxShadow: [BoxShadow(
-                                    color: const Color(0xFFB07A6E).withOpacity(0.12),
-                                    blurRadius: 12, offset: const Offset(0, 4))],
-                              ),
-                              child: const Icon(Icons.arrow_back_ios_new_rounded,
-                                  color: _text, size: 18),
+                          ColoredBox(
+                            color: _bg,
+                            child: Image.asset(
+                              'assets/images/logo_no_text.png',
+                              width: 26, height: 26,
+                              errorBuilder: (_, __, ___) => const Icon(
+                                  Icons.favorite_rounded,
+                                  color: Color(0xFFD4A5A5), size: 22),
                             ),
                           ),
-                          const SizedBox(width: 14),
+                          const SizedBox(width: 7),
                           RichText(text: const TextSpan(children: [
                             TextSpan(text: 'Cogni', style: TextStyle(fontSize: 16,
                                 fontWeight: FontWeight.w300, color: Color(0xFF5D4037),
@@ -149,27 +156,31 @@ class _PatientProfilePageState extends State<PatientProfilePage>
                                 fontWeight: FontWeight.w800, color: Color(0xFF5D4037),
                                 letterSpacing: -0.5)),
                           ])),
-                          const Spacer(),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: _card, borderRadius: BorderRadius.circular(20),
-                              boxShadow: [BoxShadow(
-                                  color: const Color(0xFFB07A6E).withOpacity(0.10),
-                                  blurRadius: 10, offset: const Offset(0, 3))],
-                            ),
-                            child: Text(DateFormat('MMM d').format(DateTime.now()),
-                                style: const TextStyle(fontSize: 13,
-                                    fontWeight: FontWeight.w700, color: _subtext)),
-                          ),
                         ],
                       ),
-                    ),
-                    const SizedBox(height: 28),
-                    // Content
-                    Expanded(
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: _card, borderRadius: BorderRadius.circular(20),
+                          boxShadow: [BoxShadow(
+                              color: const Color(0xFFB07A6E).withOpacity(0.10),
+                              blurRadius: 10, offset: const Offset(0, 3))],
+                        ),
+                        child: Text(DateFormat('MMM d').format(DateTime.now()),
+                            style: const TextStyle(fontSize: 13,
+                                fontWeight: FontWeight.w700, color: _subtext)),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: FadeTransition(
+                    opacity: _fadeAnimation,
+                    child: SlideTransition(
+                      position: _slideAnimation,
                       child: SingleChildScrollView(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        padding: const EdgeInsets.fromLTRB(20, 28, 20, 0),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -293,9 +304,9 @@ class _PatientProfilePageState extends State<PatientProfilePage>
                         ),
                       ),
                     ),
-                  ],
+                  ),
                 ),
-              ),
+              ],
             ),
           ),
         ],
@@ -319,8 +330,14 @@ class _PatientProfilePageState extends State<PatientProfilePage>
             children: [
               _BottomNavItem(
                 icon: Icons.home_rounded, label: 'Home',
-                onTap: () => _goTo(PatientDetailPage(
-                    patientId: widget.patientId, patientName: widget.patientName)),
+                onTap: () {
+                  Navigator.pushReplacement(context, InstantPushMaterialRoute(
+                    builder: (_) => PatientDetailPage(
+                      patientId: widget.patientId,
+                      patientName: widget.patientName,
+                    ),
+                  ));
+                },
               ),
               _BottomNavItem(
                 icon: Icons.calendar_today_outlined, label: 'Calendar',
