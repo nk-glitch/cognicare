@@ -35,8 +35,6 @@ class _PatientHomePageState extends State<PatientHomePage>
 
   String patientName = "";
   String patientFirstName = "";
-  String emergencyContactName = "Not set";
-  String emergencyContactPhone = "";
   String caretakerName = "";
   String caretakerPhone = "";
   String currentLocation = "";
@@ -239,8 +237,6 @@ class _PatientHomePageState extends State<PatientHomePage>
         final patientData = await _authService.getPatientData(user.uid);
         if (patientData != null) {
           setState(() {
-            emergencyContactName = patientData['emergencyContact'] ?? 'Not set';
-            emergencyContactPhone = patientData['emergencyContactNumber'] ?? '';
             currentLocation = patientData['address'] ?? '';
           });
         }
@@ -328,8 +324,6 @@ class _PatientHomePageState extends State<PatientHomePage>
             patientName = '${userData['firstName']} ${userData['lastName']}';
           }
           if (patientData != null) {
-            emergencyContactName = patientData['emergencyContact'] ?? 'Not set';
-            emergencyContactPhone = patientData['emergencyContactNumber'] ?? '';
             currentLocation = patientData['address'] ?? '';
           }
         });
@@ -383,25 +377,6 @@ class _PatientHomePageState extends State<PatientHomePage>
         ],
       ),
     );
-  }
-
-  void _handleEmergencyCall() async {
-    if (emergencyContactPhone.isEmpty) {
-      _showErrorDialog('No emergency contact number set');
-      return;
-    }
-    final uri = Uri(
-        scheme: 'tel',
-        path: emergencyContactPhone.replaceAll(RegExp(r'[^\d]'), ''));
-    try {
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri);
-      } else {
-        if (mounted) _showErrorDialog('Unable to make phone call');
-      }
-    } catch (e) {
-      if (mounted) _showErrorDialog('Error: ${e.toString()}');
-    }
   }
 
   Future<void> _handleCallCaretaker() async {
@@ -643,11 +618,11 @@ class _PatientHomePageState extends State<PatientHomePage>
 
                       const SizedBox(height: 20),
 
-                      // ── Emergency button ───────────────────────────
+                      // ── Call caretaker button (primary red) ─────────
                       ScaleTransition(
                         scale: _pulseAnimation,
                         child: GestureDetector(
-                          onTap: _handleEmergencyCall,
+                          onTap: _handleCallCaretaker,
                           child: Container(
                             width: double.infinity,
                             height: 72,
@@ -664,7 +639,7 @@ class _PatientHomePageState extends State<PatientHomePage>
                               boxShadow: [
                                 BoxShadow(
                                   color:
-                                  const Color(0xFFE53935).withOpacity(0.35),
+                                      const Color(0xFFE53935).withOpacity(0.35),
                                   blurRadius: 24,
                                   offset: const Offset(0, 10),
                                 ),
@@ -672,14 +647,16 @@ class _PatientHomePageState extends State<PatientHomePage>
                             ),
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
-                              children: const [
-                                Icon(Icons.phone_in_talk_rounded,
+                              children: [
+                                const Icon(Icons.phone_in_talk_rounded,
                                     color: Colors.white, size: 26),
-                                SizedBox(width: 12),
+                                const SizedBox(width: 12),
                                 Text(
-                                  'Emergency',
-                                  style: TextStyle(
-                                    fontSize: 24,
+                                  caretakerName.isNotEmpty
+                                      ? 'Call $caretakerName'
+                                      : 'Call caretaker',
+                                  style: const TextStyle(
+                                    fontSize: 22,
                                     fontWeight: FontWeight.w800,
                                     color: Colors.white,
                                     letterSpacing: 0.3,
@@ -692,11 +669,6 @@ class _PatientHomePageState extends State<PatientHomePage>
                       ),
 
                       const SizedBox(height: 12),
-
-                      // ── Call caretaker button ──────────────────────
-                      _buildCallCaretakerButton(),
-
-                      const SizedBox(height: 28),
 
                       // ── Right now ──────────────────────────────────
                       const _SectionHeader(label: 'RIGHT NOW'),
@@ -821,61 +793,6 @@ class _PatientHomePageState extends State<PatientHomePage>
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  // ── Call caretaker button ─────────────────────────────────────────────────
-  Widget _buildCallCaretakerButton() {
-    final name = caretakerName.isNotEmpty ? caretakerName : 'Caretaker';
-    return GestureDetector(
-      onTap: _handleCallCaretaker,
-      child: Container(
-        width: double.infinity,
-        height: 60,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: const Color(0xFFEDE5E2),
-            width: 1.5,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFFB07A6E).withOpacity(0.08),
-              blurRadius: 16,
-              offset: const Offset(0, 6),
-            ),
-          ],
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: const Color(0xFFF4E4E1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(
-                Icons.phone_outlined,
-                color: Color(0xFFD4A5A5),
-                size: 17,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Text(
-              'Call $name',
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF5D4037),
-                letterSpacing: 0.1,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -1215,21 +1132,11 @@ class _PatientHomePageState extends State<PatientHomePage>
           ),
           const SizedBox(height: 10),
           const Text(
-            'Emergency',
+            'Call caretaker',
             style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
                 color: Color(0xFF5D4037)),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            emergencyContactName.isEmpty || emergencyContactName == 'Not set'
-                ? 'Not set'
-                : emergencyContactName,
-            style:
-            const TextStyle(fontSize: 12, color: Color(0xFF8D6E63)),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),

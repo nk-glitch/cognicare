@@ -328,7 +328,7 @@ class _LoginPageState extends State<LoginPage>
                                 _buildField(
                                   controller: _passwordController,
                                   label: 'Password',
-                                  hint: 'Min 8 chars, upper, lower, number, special',
+                                  hint: 'Enter your password',
                                   icon: Icons.lock_outline_rounded,
                                   obscureText: _obscurePassword,
                                   suffixIcon: IconButton(
@@ -347,18 +347,8 @@ class _LoginPageState extends State<LoginPage>
                                     if (v == null || v.isEmpty) {
                                       return 'Password is required';
                                     }
-                                    final password = v;
-                                    if (password.length < 8) {
-                                      return 'At least 8 characters';
-                                    }
-                                    final hasUpper = RegExp(r'[A-Z]').hasMatch(password);
-                                    final hasLower = RegExp(r'[a-z]').hasMatch(password);
-                                    final hasDigit = RegExp(r'[0-9]').hasMatch(password);
-                                    final hasSpecial =
-                                        RegExp(r'[!@#\$%^&*(),.?":{}|<>_\-]').hasMatch(password);
-                                    if (!hasUpper || !hasLower || !hasDigit || !hasSpecial) {
-                                      return 'Must include upper, lower, number, and special character';
-                                    }
+                                    // No complexity/length check here so older accounts
+                                    // with shorter passwords can still sign in.
                                     return null;
                                   },
                                 ),

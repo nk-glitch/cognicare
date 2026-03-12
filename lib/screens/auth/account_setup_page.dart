@@ -21,7 +21,6 @@ class _AccountSetupPageState extends State<AccountSetupPage>
   final _phoneController = TextEditingController();
   final _addressController = TextEditingController();
   final _dobController = TextEditingController();
-  final _emergencyContactController = TextEditingController();
   final _authService = AuthService();
 
   bool _isLoading = false;
@@ -56,7 +55,6 @@ class _AccountSetupPageState extends State<AccountSetupPage>
     _phoneController.dispose();
     _addressController.dispose();
     _dobController.dispose();
-    _emergencyContactController.dispose();
     _animController.dispose();
     super.dispose();
   }
@@ -66,7 +64,6 @@ class _AccountSetupPageState extends State<AccountSetupPage>
     if (_phoneController.text.isNotEmpty) count++;
     if (_addressController.text.isNotEmpty) count++;
     if (_dobController.text.isNotEmpty) count++;
-    if (_emergencyContactController.text.isNotEmpty) count++;
     return count;
   }
 
@@ -134,7 +131,7 @@ class _AccountSetupPageState extends State<AccountSetupPage>
         userId: widget.userId,
         address: _addressController.text.trim(),
         dateOfBirth: _dobController.text.trim(),
-        emergencyContact: _emergencyContactController.text.trim(),
+        emergencyContact: '',
         emergencyContactNumber: '',
         phone: _phoneController.text.trim(),
       );
@@ -399,16 +396,6 @@ class _AccountSetupPageState extends State<AccountSetupPage>
                                     ),
                                     const SizedBox(height: 20),
                                     _buildDateField(),
-                                    const SizedBox(height: 20),
-                                    _buildField(
-                                      controller: _emergencyContactController,
-                                      label: 'Emergency contact name',
-                                      hint: 'Family member or friend',
-                                      icon: Icons.person_outline_rounded,
-                                      validator: (v) => (v == null || v.isEmpty)
-                                          ? 'Emergency contact is required'
-                                          : null,
-                                    ),
                                   ],
                                 ),
                               ),
