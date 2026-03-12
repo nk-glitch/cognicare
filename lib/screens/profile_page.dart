@@ -2,690 +2,776 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/auth_service.dart';
+import 'auth/login_page.dart';
+import 'caretaker/location_map_page.dart';
+import 'caretaker/calendar_page.dart';
+import 'caretaker/caretaker_home_page.dart';
 
 class ProfilePage extends StatefulWidget {
   final bool isCaretaker;
+  // When set, shows the patient's profile instead of the logged-in user's
+  final String? viewingPatientId;
+  final String? viewingPatientName;
 
   const ProfilePage({
     super.key,
     required this.isCaretaker,
+    this.viewingPatientId,
+    this.viewingPatientName,
   });
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
 }
 
-class _ProfilePageState extends State<ProfilePage> {
+class _ProfilePageState extends State<ProfilePage>
+    with SingleTickerProviderStateMixin {
   final AuthService _authService = AuthService();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  String userName = "Loading...";
-  String? phone;
-  String? address;
-  List<NotificationItem> notifications = [];
+  String firstName = '';
+  String lastName = '';
+  String email = '';
+  String phone = '';
+  String address = '';
   bool _isLoading = true;
+
+  late AnimationController _animController;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
 
   @override
   void initState() {
     super.initState();
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    );
+    _fadeAnimation = CurvedAnimation(
+        parent: _animController, curve: Curves.easeOut);
+    _slideAnimation =
+        Tween<Offset>(begin: const Offset(0, 0.05), end: Offset.zero).animate(
+          CurvedAnimation(parent: _animController, curve: Curves.easeOutCubic),
+        );
     _loadUserData();
+  }
+
+  @override
+  void dispose() {
+    _animController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadUserData() async {
     try {
-      final user = _authService.currentUser;
-      if (user != null) {
-        final userData = await _authService.getUserData(user.uid);
-        if (userData != null) {
-          setState(() {
-            userName = '${userData['firstName']} ${userData['lastName']}';
-            phone = userData['phone'];
-          });
+      // Viewing a patient's profile from the caretaker's context
+      if (widget.viewingPatientId != null) {
+        // Fetch address from patients collection
+        final patientDoc = await _firestore
+            .collection('patients')
+            .doc(widget.viewingPatientId)
+            .get();
+        if (patientDoc.exists) {
+          final data = patientDoc.data()!;
+          firstName = data['firstName'] ?? widget.viewingPatientName ?? '';
+          lastName = data['lastName'] ?? '';
+          address = data['address'] ?? '';
+        } else {
+          final parts = (widget.viewingPatientName ?? '').split(' ');
+          firstName = parts.isNotEmpty ? parts.first : '';
+          lastName = parts.length > 1 ? parts.sublist(1).join(' ') : '';
         }
 
-        // Load patient-specific data
-        if (!widget.isCaretaker) {
-          final patientData = await _authService.getPatientData(user.uid);
-          if (patientData != null) {
-            setState(() {
-              address = patientData['address'];
-            });
-          }
+        // Fetch email and phone from users collection
+        final userDoc = await _firestore
+            .collection('users')
+            .doc(widget.viewingPatientId)
+            .get();
+        if (userDoc.exists) {
+          final data = userDoc.data()!;
+          email = data['email'] ?? '';
+          phone = data['phone'] ?? '';
+          // Also grab name from users if not found in patients
+          if (firstName.isEmpty) firstName = data['firstName'] ?? '';
+          if (lastName.isEmpty) lastName = data['lastName'] ?? '';
         }
-
-        // Load notifications (connection requests)
-        await _loadNotifications(user.uid);
-      }
-    } catch (e) {
-      print('Error loading user data: $e');
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
-    }
-  }
-
-  Future<void> _loadNotifications(String userId) async {
-    try {
-      // Only patients receive connection requests (caretakers send them; patients accept)
-      if (widget.isCaretaker) {
-        setState(() => notifications = []);
         return;
       }
 
-      final snapshot = await _firestore
-          .collection('patient_caretaker_relationships')
-          .where('patientId', isEqualTo: userId)
-          .where('status', isEqualTo: 'pending')
-          .get();
-
-      List<NotificationItem> newNotifications = [];
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        final caretakerId = data['caretakerId'];
-
-        final otherUserData = await _authService.getUserData(caretakerId);
-        if (otherUserData != null) {
-          final otherUserName = '${otherUserData['firstName']} ${otherUserData['lastName']}';
-
-          newNotifications.add(NotificationItem.connectionRequest(
-            fromName: otherUserName,
-            isCaretaker: false,
-            requestId: doc.id,
-            fromUserId: caretakerId,
-            timestamp: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
-          ));
+      // Normal flow: load the logged-in user's own profile
+      final user = _authService.currentUser;
+      if (user != null) {
+        email = user.email ?? '';
+        final userData = await _authService.getUserData(user.uid);
+        if (userData != null) {
+          firstName = userData['firstName'] ?? '';
+          lastName = userData['lastName'] ?? '';
+          phone = userData['phone'] ?? '';
+        }
+        if (!widget.isCaretaker) {
+          final patientData = await _authService.getPatientData(user.uid);
+          if (patientData != null) {
+            address = patientData['address'] ?? '';
+          }
         }
       }
-
-      setState(() {
-        notifications = newNotifications;
-      });
     } catch (e) {
-      print('Error loading notifications: $e');
-    }
-  }
-
-  Future<void> _acceptRequest(NotificationItem notification) async {
-    try {
-      // Update relationship status
-      await _firestore
-          .collection('patient_caretaker_relationships')
-          .doc(notification.requestId)
-          .update({
-        'status': 'accepted',
-        'acceptedAt': FieldValue.serverTimestamp(),
-      });
-
-      // If patient is accepting, add caretaker to their caretakers array
-      if (!widget.isCaretaker) {
-        // Update patient's document with caretaker reference (optional)
-      }
-
-      // Reload notifications
-      await _loadUserData();
-
+      debugPrint('Error loading user data: $e');
+    } finally {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Connection request accepted!'),
-            backgroundColor: Color(0xFF8FA9C9),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    } catch (e) {
-      print('Error accepting request: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to accept request: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        setState(() => _isLoading = false);
+        _animController.forward();
       }
     }
   }
 
-  Future<void> _rejectRequest(NotificationItem notification) async {
-    try {
-      await _firestore
-          .collection('patient_caretaker_relationships')
-          .doc(notification.requestId)
-          .delete();
-
-      await _loadUserData();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Connection request rejected'),
-            backgroundColor: Colors.grey,
-            behavior: SnackBarBehavior.floating,
+  void _showSignOutConfirmation() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: Colors.white,
+        title: const Text('Sign out?',
+            style: TextStyle(
+                fontWeight: FontWeight.w700, color: Color(0xFF3E2723))),
+        content: const Text('Are you sure you want to sign out?',
+            style: TextStyle(color: Color(0xFF8D6E63))),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel',
+                style: TextStyle(color: Color(0xFF8D6E63))),
           ),
-        );
-      }
-    } catch (e) {
-      print('Error rejecting request: $e');
-    }
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _authService.signOut();
+              if (mounted) {
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LoginPage()),
+                      (_) => false,
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF5A7A1A),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+              elevation: 0,
+            ),
+            child: const Text('Sign Out',
+                style: TextStyle(fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
       return const Scaffold(
-        backgroundColor: Color(0xFFF5E6E8),
-        body: Center(child: CircularProgressIndicator()),
+        backgroundColor: Color(0xFFFAF6F4),
+        body: Center(
+            child: CircularProgressIndicator(color: Color(0xFF5A7A1A))),
       );
     }
 
+    final fullName = '${firstName.trim()} ${lastName.trim()}'.trim();
+    final initials =
+    '${firstName.isNotEmpty ? firstName[0] : ''}${lastName.isNotEmpty ? lastName[0] : ''}'
+        .toUpperCase();
+    final isViewingPatient = widget.viewingPatientId != null;
+    final roleLabel = isViewingPatient ? 'Patient' : (widget.isCaretaker ? 'Caretaker' : 'Patient');
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF5E6E8),
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildHeader(),
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
+      backgroundColor: const Color(0xFFFAF6F4),
+      bottomNavigationBar:
+      widget.isCaretaker ? _buildBottomNav() : null,
+      body: Stack(
+        children: [
+          // Background blobs
+          Positioned(
+            top: -60,
+            right: -60,
+            child: Container(
+              width: 240,
+              height: 240,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFFE8C9C0).withOpacity(0.35),
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: -80,
+            left: -80,
+            child: Container(
+              width: 280,
+              height: 280,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFF6B8E23).withOpacity(0.07),
+              ),
+            ),
+          ),
+
+          SafeArea(
+            child: FadeTransition(
+              opacity: _fadeAnimation,
+              child: SlideTransition(
+                position: _slideAnimation,
                 child: Column(
                   children: [
-                    _buildProfileCard(),
-                    const SizedBox(height: 20),
-                    _buildInfoCard(),
-                    const SizedBox(height: 20),
-                    _buildInboxCard(),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHeader() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      decoration: BoxDecoration(
-        color: const Color(0xFFE8C4C8),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          IconButton(
-            onPressed: () => Navigator.pop(context),
-            icon: const Icon(Icons.arrow_back, color: Color(0xFF3D2C31)),
-            style: IconButton.styleFrom(
-              backgroundColor: Colors.white.withOpacity(0.5),
-              padding: const EdgeInsets.all(8),
-            ),
-          ),
-          const Text(
-            'Profile Page',
-            style: TextStyle(
-              fontSize: 16,
-              color: Color(0xFF5A4046),
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          Text(
-            DateFormat('MMM dd, yyyy').format(DateTime.now()),
-            style: const TextStyle(
-              fontSize: 14,
-              color: Color(0xFF5A4046),
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.5),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(
-              Icons.favorite,
-              color: Color(0xFFD47A8A),
-              size: 24,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildProfileCard() {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: const Color(0xFFE8C4C8),
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              userName,
-              style: const TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF3D2C31),
-              ),
-            ),
-          ),
-          Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.15),
-                  blurRadius: 8,
-                  offset: const Offset(0, 3),
-                ),
-              ],
-            ),
-            child: const Icon(
-              Icons.person,
-              size: 45,
-              color: Color(0xFF8FA9C9),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInfoCard() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: const Color(0xFFE8C4C8),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: const Color(0xFFC09499),
-          width: 2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'My Info:',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF3D2C31),
-            ),
-          ),
-          const SizedBox(height: 20),
-          _buildInfoRow('name:', userName),
-          const SizedBox(height: 12),
-          _buildInfoRow('phone:', phone ?? 'Not provided'),
-          if (!widget.isCaretaker) ...[
-            const SizedBox(height: 12),
-            _buildInfoRow('address:', address ?? 'Not provided'),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInfoRow(String label, String value) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF3D2C31),
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 16,
-            color: Color(0xFF5A4046),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildInboxCard() {
-    final unreadCount = notifications.where((n) => !n.isRead).length;
-
-    return Column(
-      children: [
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-          decoration: BoxDecoration(
-            color: const Color(0xFFD4ADB1),
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.08),
-                blurRadius: 8,
-                offset: const Offset(0, 3),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Text(
-                'Inbox:',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF3D2C31),
-                ),
-              ),
-              if (unreadCount > 0) ...[
-                const SizedBox(width: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFF4757),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    '$unreadCount',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-        if (notifications.isEmpty)
-          _buildEmptyInbox()
-        else
-          _buildNotificationsList(),
-      ],
-    );
-  }
-
-  Widget _buildEmptyInbox() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(32),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: const Color(0xFFE8C4C8),
-          width: 2,
-        ),
-      ),
-      child: Column(
-        children: [
-          Icon(
-            Icons.inbox,
-            size: 64,
-            color: const Color(0xFF8FA9C9).withOpacity(0.5),
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'No notifications',
-            style: TextStyle(
-              fontSize: 18,
-              color: Color(0xFF7A6A70),
-              fontStyle: FontStyle.italic,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildNotificationsList() {
-    return Column(
-      children: notifications.map((notification) {
-        return _buildNotificationItem(notification);
-      }).toList(),
-    );
-  }
-
-  Widget _buildNotificationItem(NotificationItem notification) {
-    final isRequest = notification.type == NotificationType.connectionRequest;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: notification.isRead ? Colors.white : const Color(0xFFFFF9E6),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: notification.isRead
-              ? const Color(0xFFE8C4C8)
-              : const Color(0xFFFFD700),
-          width: 2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF8FA9C9).withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(
-                    Icons.person_add,
-                    color: Color(0xFF8FA9C9),
-                    size: 24,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    // ── Top bar ──────────────────────────────────
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                      child: Row(
                         children: [
-                          Expanded(
-                            child: Text(
-                              notification.title,
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: notification.isRead
-                                    ? FontWeight.w600
-                                    : FontWeight.bold,
-                                color: const Color(0xFF3D2C31),
+                          GestureDetector(
+                            onTap: () => Navigator.popUntil(context, (route) => route.isFirst),
+                            child: Container(
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(12),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFFB07A6E)
+                                        .withOpacity(0.12),
+                                    blurRadius: 12,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: const Icon(
+                                Icons.arrow_back_ios_new_rounded,
+                                color: Color(0xFF5D4037),
+                                size: 18,
                               ),
                             ),
                           ),
-                          if (!notification.isRead)
-                            Container(
-                              width: 10,
-                              height: 10,
-                              decoration: const BoxDecoration(
-                                color: Color(0xFFFF4757),
-                                shape: BoxShape.circle,
+                          const SizedBox(width: 14),
+                          // Logo + wordmark
+                          Row(
+                            children: [
+                              Image.asset(
+                                'assets/images/logo_no_text.png',
+                                width: 22,
+                                height: 22,
+                                errorBuilder: (_, __, ___) => const Icon(
+                                  Icons.favorite_rounded,
+                                  color: Color(0xFFD4A5A5),
+                                  size: 20,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              RichText(
+                                text: const TextSpan(
+                                  children: [
+                                    TextSpan(
+                                      text: 'Cogni',
+                                      style: TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w300,
+                                        color: Color(0xFF5D4037),
+                                        letterSpacing: -0.5,
+                                      ),
+                                    ),
+                                    TextSpan(
+                                      text: 'Care',
+                                      style: TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w800,
+                                        color: Color(0xFF5D4037),
+                                        letterSpacing: -0.5,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const Spacer(),
+                          // Sign out button — hidden when viewing a patient's profile
+                          if (!isViewingPatient)
+                            GestureDetector(
+                              onTap: _showSignOutConfirmation,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(20),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFFB07A6E)
+                                          .withOpacity(0.10),
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 3),
+                                    ),
+                                  ],
+                                ),
+                                child: Row(
+                                  children: const [
+                                    Icon(Icons.logout_rounded,
+                                        size: 15, color: Color(0xFF8D6E63)),
+                                    SizedBox(width: 6),
+                                    Text(
+                                      'Sign out',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: Color(0xFF8D6E63),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                         ],
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        notification.message,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: Color(0xFF5A4046),
+                    ),
+
+                    const SizedBox(height: 28),
+
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+
+                            // ── Avatar + name card ───────────────
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(24),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(24),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFFB07A6E)
+                                        .withOpacity(0.10),
+                                    blurRadius: 40,
+                                    offset: const Offset(0, 12),
+                                  ),
+                                ],
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 64,
+                                    height: 64,
+                                    decoration: const BoxDecoration(
+                                      color: Color(0xFFF4E4E1),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Center(
+                                      child: Text(
+                                        initials.isNotEmpty ? initials : '?',
+                                        style: const TextStyle(
+                                          fontSize: 22,
+                                          fontWeight: FontWeight.w700,
+                                          color: Color(0xFFD4A5A5),
+                                          letterSpacing: 1,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 18),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          fullName.isNotEmpty
+                                              ? fullName
+                                              : 'Unknown',
+                                          style: const TextStyle(
+                                            fontSize: 22,
+                                            fontWeight: FontWeight.w800,
+                                            color: Color(0xFF3E2723),
+                                            letterSpacing: -0.5,
+                                            height: 1.1,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 10, vertical: 4),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFF5A7A1A)
+                                                .withOpacity(0.10),
+                                            borderRadius:
+                                            BorderRadius.circular(20),
+                                          ),
+                                          child: Text(
+                                            roleLabel,
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w700,
+                                              color: Color(0xFF5A7A1A),
+                                              letterSpacing: 0.3,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                            const SizedBox(height: 24),
+
+                            const _SectionLabel(label: 'ACCOUNT INFO'),
+                            const SizedBox(height: 10),
+
+                            Container(
+                              width: double.infinity,
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(20),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFFB07A6E)
+                                        .withOpacity(0.10),
+                                    blurRadius: 30,
+                                    offset: const Offset(0, 10),
+                                  ),
+                                ],
+                              ),
+                              child: Column(
+                                children: [
+                                  _InfoRow(
+                                    icon: Icons.alternate_email_rounded,
+                                    label: 'Email',
+                                    value: email.isNotEmpty
+                                        ? email
+                                        : 'Not provided',
+                                    isFirst: true,
+                                  ),
+                                  const _RowDivider(),
+                                  _InfoRow(
+                                    icon: Icons.phone_outlined,
+                                    label: 'Phone',
+                                    value: phone.isNotEmpty
+                                        ? phone
+                                        : 'Not provided',
+                                  ),
+                                  if (!widget.isCaretaker || isViewingPatient) ...[
+                                    const _RowDivider(),
+                                    _InfoRow(
+                                      icon: Icons.home_outlined,
+                                      label: 'Address',
+                                      value: address.isNotEmpty
+                                          ? address
+                                          : 'Not provided',
+                                      isLast: true,
+                                    ),
+                                  ] else
+                                    const SizedBox(height: 4),
+                                ],
+                              ),
+                            ),
+
+                            const SizedBox(height: 24),
+
+                            const _SectionLabel(label: 'MEMBERSHIP'),
+                            const SizedBox(height: 10),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(18),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(18),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFFB07A6E)
+                                        .withOpacity(0.08),
+                                    blurRadius: 20,
+                                    offset: const Offset(0, 6),
+                                  ),
+                                ],
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 38,
+                                    height: 38,
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF4E4E1),
+                                      borderRadius: BorderRadius.circular(11),
+                                    ),
+                                    child: const Icon(
+                                      Icons.calendar_today_outlined,
+                                      size: 18,
+                                      color: Color(0xFFD4A5A5),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 14),
+                                  Column(
+                                    crossAxisAlignment:
+                                    CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Member since',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Color(0xFF8D6E63),
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        DateFormat('MMMM y')
+                                            .format(DateTime.now()),
+                                        style: const TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w700,
+                                          color: Color(0xFF3E2723),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                            const SizedBox(height: 32),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        _formatTimestamp(notification.timestamp),
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Color(0xFF7A6A70),
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            if (isRequest && !notification.isRead) ...[
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () => _acceptRequest(notification),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF8FA9C9),
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: const Text('Accept'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => _rejectRequest(notification),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF3D2C31),
-                        side: const BorderSide(color: Color(0xFF3D2C31)),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: const Text('Reject'),
-                    ),
-                  ),
-                ],
               ),
-            ],
-          ],
-        ),
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  String _formatTimestamp(DateTime timestamp) {
-    final now = DateTime.now();
-    final difference = now.difference(timestamp);
-
-    if (difference.inMinutes < 60) {
-      return '${difference.inMinutes}m ago';
-    } else if (difference.inHours < 24) {
-      return '${difference.inHours}h ago';
-    } else if (difference.inDays < 7) {
-      return '${difference.inDays}d ago';
-    } else {
-      return DateFormat('MMM dd, yyyy').format(timestamp);
-    }
-  }
-}
-
-// Notification Models
-enum NotificationType {
-  connectionRequest,
-  scheduleUpdate,
-}
-
-class NotificationItem {
-  final String title;
-  final String message;
-  final NotificationType type;
-  final DateTime timestamp;
-  final String? requestId;
-  final String? fromUserId;
-  bool isRead;
-
-  NotificationItem({
-    required this.title,
-    required this.message,
-    required this.type,
-    required this.timestamp,
-    this.requestId,
-    this.fromUserId,
-    this.isRead = false,
-  });
-
-  factory NotificationItem.connectionRequest({
-    required String fromName,
-    required bool isCaretaker,
-    required String requestId,
-    required String fromUserId,
-    DateTime? timestamp,
-  }) {
-    return NotificationItem(
-      title: 'Connection Request',
-      message: isCaretaker
-          ? '$fromName wants to be added to your care list'
-          : '$fromName wants to add you as their patient',
-      type: NotificationType.connectionRequest,
-      timestamp: timestamp ?? DateTime.now(),
-      requestId: requestId,
-      fromUserId: fromUserId,
+  // ── Bottom nav (caretaker only) ───────────────────────────────────────────
+  Widget _buildBottomNav() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFB07A6E).withOpacity(0.10),
+            blurRadius: 16,
+            offset: const Offset(0, -4),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _BottomNavItem(
+                icon: Icons.home_rounded,
+                label: 'Home',
+                onTap: () => Navigator.of(context).pop(),
+              ),
+              _BottomNavItem(
+                icon: Icons.calendar_today_outlined,
+                label: 'Calendar',
+                onTap: () {
+                  Navigator.popUntil(context, (route) => route.isFirst);
+                  Navigator.push(
+                    context,
+                    PageRouteBuilder(
+                      pageBuilder: (_, __, ___) => CalendarPage(
+                        patientId: widget.viewingPatientId ?? '',
+                        patientName: widget.viewingPatientName ?? '',
+                        isCaretaker: true,
+                      ),
+                      transitionDuration: Duration.zero,
+                      reverseTransitionDuration: Duration.zero,
+                    ),
+                  );
+                },
+              ),
+              _BottomNavItem(
+                icon: Icons.location_on_outlined,
+                label: 'Location',
+                onTap: () {
+                  Navigator.popUntil(context, (route) => route.isFirst);
+                  Navigator.push(
+                    context,
+                    PageRouteBuilder(
+                      pageBuilder: (_, __, ___) => LocationMapPage(
+                        patientId: widget.viewingPatientId ?? '',
+                        patientName: widget.viewingPatientName ?? '',
+                      ),
+                      transitionDuration: Duration.zero,
+                      reverseTransitionDuration: Duration.zero,
+                    ),
+                  );
+                },
+              ),
+              _BottomNavItem(
+                icon: Icons.person_outline_rounded,
+                label: 'Profile',
+                active: true,
+                onTap: () {},
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
+}
 
-  factory NotificationItem.scheduleUpdate({
-    required String patientName,
-    required String updatedBy,
-    DateTime? timestamp,
-  }) {
-    return NotificationItem(
-      title: 'Schedule Updated',
-      message: '$updatedBy updated the schedule for $patientName',
-      type: NotificationType.scheduleUpdate,
-      timestamp: timestamp ?? DateTime.now(),
+// ── Info row ──────────────────────────────────────────────────────────────────
+class _InfoRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final bool isFirst;
+  final bool isLast;
+
+  const _InfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.isFirst = false,
+    this.isLast = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+          18, isFirst ? 20 : 14, 18, isLast ? 20 : 14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: const Color(0xFFFAF6F4),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, size: 18, color: const Color(0xFFD4A5A5)),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF8D6E63),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF3E2723),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Divider ───────────────────────────────────────────────────────────────────
+class _RowDivider extends StatelessWidget {
+  const _RowDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Divider(
+      height: 1,
+      indent: 18,
+      endIndent: 18,
+      color: Color(0xFFF0E8E5),
+    );
+  }
+}
+
+// ── Section label ─────────────────────────────────────────────────────────────
+class _SectionLabel extends StatelessWidget {
+  final String label;
+  const _SectionLabel({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label,
+      style: const TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w700,
+        color: Color(0xFF8D6E63),
+        letterSpacing: 1.2,
+      ),
+    );
+  }
+}
+
+// ── Bottom nav item ───────────────────────────────────────────────────────────
+class _BottomNavItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool active;
+
+  const _BottomNavItem({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.active = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 24,
+            color: active
+                ? const Color(0xFF5A7A1A)
+                : const Color(0xFFBDB0AC),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: active
+                  ? const Color(0xFF5A7A1A)
+                  : const Color(0xFFBDB0AC),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

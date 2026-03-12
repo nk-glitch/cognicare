@@ -174,3 +174,125 @@ async function sendReminderNotification(db, docId, reminder, isSnoozed) {
         return null;
     }
 }
+// ─── Missed Reminder Alert System ────────────────────────────────────────────
+// Runs every minute. If a reminder was due 5+ minutes ago and the patient
+// hasn't marked it complete, write a caretaker_alerts doc and send a push
+// notification to every accepted caretaker for that patient.
+
+exports.checkMissedReminders = onSchedule('every 1 minutes', async (event) => {
+    const db = admin.firestore();
+    const now = admin.firestore.Timestamp.now();
+
+    // Query all overdue, incomplete, unalerted reminders (up to 24h ago to be safe)
+    const twentyFourHoursAgo = admin.firestore.Timestamp.fromMillis(now.toMillis() - 24 * 60 * 60 * 1000);
+
+    try {
+        const missedSnapshot = await db.collection('reminders')
+            .where('time', '<=', now)
+            .where('time', '>=', twentyFourHoursAgo)
+            .where('completed', '==', false)
+            .get();
+
+        if (missedSnapshot.empty) return null;
+
+        const promises = [];
+        missedSnapshot.forEach(doc => {
+            const reminder = doc.data();
+
+            // Skip if alert already sent
+            if (reminder.caretakerAlertSent) return;
+
+            // Skip if caretaker alerts are disabled for this reminder
+            const delayMinutes = reminder.missedAlertDelayMinutes;
+            if (delayMinutes === null || delayMinutes === undefined) return;
+
+            // Check if enough time has passed since the reminder was due
+            const dueMillis = reminder.time.toMillis();
+            const elapsedMinutes = (now.toMillis() - dueMillis) / 60000;
+            if (elapsedMinutes < delayMinutes) return;
+
+            promises.push(alertCaretakers(db, doc.id, reminder));
+        });
+
+        if (promises.length > 0) {
+            await Promise.all(promises);
+            console.log(`Sent ${promises.length} missed reminder alerts`);
+        }
+
+        return null;
+    } catch (error) {
+        console.error('Error in checkMissedReminders:', error);
+        return null;
+    }
+});
+
+async function alertCaretakers(db, reminderId, reminder) {
+    try {
+        const patientId = reminder.patientId;
+        if (!patientId) return;
+
+        // Find all accepted caretakers for this patient
+        const relationshipsSnapshot = await db
+            .collection('patient_caretaker_relationships')
+            .where('patientId', '==', patientId)
+            .where('status', '==', 'accepted')
+            .get();
+
+        // Mark as sent immediately so we don't retry even if no caretakers
+        await db.collection('reminders').doc(reminderId).update({ caretakerAlertSent: true });
+
+        if (relationshipsSnapshot.empty) return;
+
+        const reminderTitle = reminder.title || 'Reminder';
+        const timeStr = formatTime(reminder.time);
+        const alertMessage = `A patient missed "${reminderTitle}" scheduled for ${timeStr}`;
+
+        for (const relDoc of relationshipsSnapshot.docs) {
+            const caretakerId = relDoc.data().caretakerId;
+            if (!caretakerId) continue;
+
+            // Write alert document (shows up in InboxPage)
+            const alertRef = db.collection('caretaker_alerts').doc();
+            await alertRef.set({
+                caretakerId: caretakerId,
+                patientId: patientId,
+                reminderId: reminderId,
+                message: alertMessage,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                isRead: false,
+            });
+
+            // Push notification to caretaker
+            const caretakerDoc = await db.collection('users').doc(caretakerId).get();
+            if (!caretakerDoc.exists) continue;
+            const token = caretakerDoc.data().fcmToken;
+            if (!token) continue;
+
+            await admin.messaging().send({
+                token: token,
+                notification: {
+                    title: 'Missed Reminder Alert',
+                    body: alertMessage,
+                },
+                data: {
+                    type: 'caretaker_alert',
+                    reminderId: reminderId,
+                    patientId: patientId,
+                    reminderTitle: reminderTitle,
+                    alertMessage: alertMessage,
+                },
+                android: {
+                    priority: 'high',
+                    notification: {
+                        channelId: 'reminder_channel',
+                        sound: 'default',
+                    },
+                },
+            }).catch(err => console.error(`FCM failed for caretaker ${caretakerId}:`, err));
+        }
+
+        console.log(`Alerted caretakers for missed reminder ${reminderId}`);
+    } catch (error) {
+        console.error(`Error alerting caretakers for reminder ${reminderId}:`, error);
+    }
+}

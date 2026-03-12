@@ -159,6 +159,22 @@ class NotificationService {
       }
     });
 
+    // Keep FCM token fresh after reinstall or system token rotation
+    FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
+      try {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .update({'fcmToken': newToken});
+          print('FCM token refreshed and saved');
+        }
+      } catch (e) {
+        print('Error saving refreshed FCM token: $e');
+      }
+    });
+
     _isInitialized = true;
     print('NotificationService initialized successfully');
   }
@@ -198,72 +214,20 @@ class NotificationService {
 
   static void _handleForegroundMessage(RemoteMessage message) {
     RemoteNotification? notification = message.notification;
-    AndroidNotification? android = message.notification?.android;
+    final data = Map<String, dynamic>.from(message.data);
 
-    if (notification != null && android != null) {
-      final data = Map<String, dynamic>.from(message.data);
-      final reminderId = data['reminderId'] as String? ?? notification.hashCode.toString();
-      DateTime? scheduledTime;
-
-      String formattedBody = notification.body ?? '';
-
-      // Check if this is a snoozed notification
-      final isSnooze = data['isSnooze'] == true || data['isSnooze'] == 'true';
-
-      // Check if there's a stored body text (for snoozed reminders)
-      if (isSnooze && data['originalBodyText'] != null) {
-        // Use the stored body text and add (Snoozed) suffix
-        formattedBody = '${data['originalBodyText']} (Snoozed)';
-      } else {
-        // Format the body text from timestamp (for regular reminders)
-        final timestampToDisplay = isSnooze && data['originalTimestamp'] != null
-            ? data['originalTimestamp']
-            : data['timestamp'];
-
-        if (timestampToDisplay != null) {
-          try {
-            // Handle both int and string timestamp
-            final timestampValue = timestampToDisplay;
-            final timestampInt = timestampValue is int
-                ? timestampValue
-                : int.tryParse(timestampValue.toString());
-
-            if (timestampInt != null) {
-              // Convert UTC timestamp directly to Eastern Time
-              final easternTime = tz.getLocation('America/New_York');
-              final tzScheduledTime = tz.TZDateTime.fromMillisecondsSinceEpoch(easternTime, timestampInt);
-              scheduledTime = tzScheduledTime;
-
-              final timeStr = DateFormat('h:mm a').format(tzScheduledTime);
-
-              data['time'] = timeStr;
-              final description = data['description'] ?? '';
-
-              // Add (Snoozed) suffix if it's a snoozed notification
-              final snoozeSuffix = isSnooze ? ' (Snoozed)' : '';
-              formattedBody = 'Scheduled for $timeStr$snoozeSuffix${description.isNotEmpty ? ':\n$description' : ''}';
-            }
-          } catch (e) {
-            print('Error formatting notification body: $e');
-          }
-        }
-      }
-
-      final compositeKey = _createCompositeKey(reminderId, scheduledTime, isSnooze: isSnooze);
-
-      // Check if we should show this notification
-      if (!_shouldShowNotification(compositeKey)) {
-        return;
-      }
-
+    // ── Caretaker missed-reminder alert ───────────────────────────────────
+    // These arrive from Cloud Functions and may have no android sub-object.
+    if (data['type'] == 'caretaker_alert') {
+      final reminderId = data['reminderId'] as String? ?? message.messageId ?? 'alert';
+      final compositeKey = 'caretaker_alert:$reminderId';
+      if (!_shouldShowNotification(compositeKey)) return;
       _markNotificationAsShown(compositeKey);
 
-      final payload = json.encode(data);
-
       flutterLocalNotificationsPlugin.show(
-        id: notification.hashCode,
-        title: notification.title,
-        body: formattedBody,
+        id: reminderId.hashCode,
+        title: notification?.title ?? 'Missed Reminder Alert',
+        body: notification?.body ?? data['alertMessage'] ?? 'A patient missed a reminder',
         notificationDetails: const NotificationDetails(
           android: AndroidNotificationDetails(
             'reminder_channel',
@@ -271,14 +235,94 @@ class NotificationService {
             channelDescription: 'Notifications for medication and task reminders',
             importance: Importance.high,
             priority: Priority.high,
-            onlyAlertOnce: true,
             playSound: true,
             enableVibration: true,
           ),
         ),
-        payload: payload,
+        payload: json.encode(data),
       );
+      return;
     }
+
+    // ── Standard patient reminder ──────────────────────────────────────────
+    if (notification == null) return;
+
+    final reminderId = data['reminderId'] as String? ?? notification.hashCode.toString();
+    DateTime? scheduledTime;
+
+    String formattedBody = notification.body ?? '';
+
+    // Check if this is a snoozed notification
+    final isSnooze = data['isSnooze'] == true || data['isSnooze'] == 'true';
+
+    // Check if there's a stored body text (for snoozed reminders)
+    if (isSnooze && data['originalBodyText'] != null) {
+      // Use the stored body text and add (Snoozed) suffix
+      formattedBody = '${data['originalBodyText']} (Snoozed)';
+    } else {
+      // Format the body text from timestamp (for regular reminders)
+      final timestampToDisplay = isSnooze && data['originalTimestamp'] != null
+          ? data['originalTimestamp']
+          : data['timestamp'];
+
+      if (timestampToDisplay != null) {
+        try {
+          // Handle both int and string timestamp
+          final timestampValue = timestampToDisplay;
+          final timestampInt = timestampValue is int
+              ? timestampValue
+              : int.tryParse(timestampValue.toString());
+
+          if (timestampInt != null) {
+            // Convert UTC timestamp directly to Eastern Time
+            final easternTime = tz.getLocation('America/New_York');
+            final tzScheduledTime = tz.TZDateTime.fromMillisecondsSinceEpoch(easternTime, timestampInt);
+            scheduledTime = tzScheduledTime;
+
+            final timeStr = DateFormat('h:mm a').format(tzScheduledTime);
+
+            data['time'] = timeStr;
+            final description = data['description'] ?? '';
+
+            // Add (Snoozed) suffix if it's a snoozed notification
+            final snoozeSuffix = isSnooze ? ' (Snoozed)' : '';
+            formattedBody = 'Scheduled for $timeStr$snoozeSuffix${description.isNotEmpty ? ':\n$description' : ''}';
+          }
+        } catch (e) {
+          print('Error formatting notification body: $e');
+        }
+      }
+    }
+
+    final compositeKey = _createCompositeKey(reminderId, scheduledTime, isSnooze: isSnooze);
+
+    // Check if we should show this notification
+    if (!_shouldShowNotification(compositeKey)) {
+      return;
+    }
+
+    _markNotificationAsShown(compositeKey);
+
+    final payload = json.encode(data);
+
+    flutterLocalNotificationsPlugin.show(
+      id: notification.hashCode,
+      title: notification.title,
+      body: formattedBody,
+      notificationDetails: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'reminder_channel',
+          'Reminder Notifications',
+          channelDescription: 'Notifications for medication and task reminders',
+          importance: Importance.high,
+          priority: Priority.high,
+          onlyAlertOnce: true,
+          playSound: true,
+          enableVibration: true,
+        ),
+      ),
+      payload: payload,
+    );
   }
 
   static void _scheduleCleanup() {

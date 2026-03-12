@@ -9,6 +9,7 @@ import '../../services/location_service.dart';
 import '../../services/notification_service.dart';
 import '../profile_page.dart';
 import '../auth/login_page.dart';
+import '../inbox_page.dart';
 
 class PatientHomePage extends StatefulWidget {
   const PatientHomePage({super.key});
@@ -18,25 +19,36 @@ class PatientHomePage extends StatefulWidget {
 }
 
 class _PatientHomePageState extends State<PatientHomePage>
-    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   final AuthService _authService = AuthService();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final LocationService _locationService = LocationService();
 
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
+  late AnimationController _fadeController;
+  late Animation<double> _fadeAnimation;
+
   Timer? _reminderCheckTimer;
   Timer? _locationUpdateTimer;
+  Timer? _clockTimer;
 
-  String patientName = "Loading...";
+  String patientName = "";
+  String patientFirstName = "";
   String emergencyContactName = "Not set";
   String emergencyContactPhone = "";
-  String currentLocation = "Loading...";
-  String currentActivity = "No activity scheduled";
+  String caretakerName = "";
+  String caretakerPhone = "";
+  String currentLocation = "";
   List<Map<String, dynamic>> reminders = [];
   bool _isLoading = true;
   bool _isSharingLocation = false;
   bool _locationShared = false;
+
+  DateTime _now = DateTime.now();
+
+  final Set<String> _shownReminderDialogs = {};
+  int _pendingRequestCount = 0;
 
   @override
   void initState() {
@@ -45,43 +57,59 @@ class _PatientHomePageState extends State<PatientHomePage>
 
     _pulseController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1500),
+      duration: const Duration(milliseconds: 1400),
     )..repeat(reverse: true);
 
-    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.05).animate(
-      CurvedAnimation(
-        parent: _pulseController,
-        curve: Curves.easeInOut,
-      ),
+    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.03).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
 
-    // Set up notification tap handler
-    NotificationService.onNotificationTap = (data) {
-      _showReminderDialog(data);
-    };
+    _fadeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    );
+    _fadeAnimation = CurvedAnimation(parent: _fadeController, curve: Curves.easeOut);
 
-    // Start periodic reminder check timer (every 30 seconds)
+    // Update clock every minute
+    _clockTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() => _now = DateTime.now());
+    });
+
+    NotificationService.onNotificationTap = (data) => _showReminderDialog(data);
     _startReminderCheckTimer();
-
     _loadPatientData();
+    _listenForPendingRequests();
 
-    // Check for pending reminders after data loads
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      Future.delayed(const Duration(milliseconds: 500), () {
-        if (!mounted) return;
-        _checkForPendingReminders();
+      Future.delayed(const Duration(milliseconds: 400), () {
+        if (mounted) _checkForPendingReminders();
       });
-
-      Future.delayed(const Duration(milliseconds: 1500), () {
-        if (!mounted) return;
-        _shareLocationInBackground();
+      Future.delayed(const Duration(milliseconds: 1000), () {
+        if (mounted) _shareLocationInBackground();
       });
-
-      // Update location every 5 min so caretaker sees fresh location
-      _locationUpdateTimer?.cancel();
       _locationUpdateTimer = Timer.periodic(const Duration(minutes: 5), (_) {
         if (mounted) _shareLocationInBackground();
       });
+    });
+  }
+
+  void _listenForPendingRequests() {
+    final user = _authService.currentUser;
+    if (user == null) return;
+    _firestore
+        .collection('patient_caretaker_relationships')
+        .where('patientId', isEqualTo: user.uid)
+        .where('status', isEqualTo: 'pending')
+        .snapshots()
+        .listen((snapshot) {
+      if (!mounted) return;
+      setState(() => _pendingRequestCount = snapshot.docs.length);
+    });
+  }
+
+  void _startReminderCheckTimer() {
+    _reminderCheckTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) _checkForPendingReminders();
     });
   }
 
@@ -92,32 +120,21 @@ class _PatientHomePageState extends State<PatientHomePage>
     });
   }
 
-  void _startReminderCheckTimer() {
-    _reminderCheckTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
-      if (mounted) {
-        _checkForPendingReminders();
-      }
-    });
-  }
-
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.resumed) {
+      setState(() => _now = DateTime.now());
       _checkForPendingReminders();
       if (_reminderCheckTimer == null || !_reminderCheckTimer!.isActive) {
         _startReminderCheckTimer();
       }
-      // Restart location timer if it was stopped (e.g. by OS in background)
       if (_locationUpdateTimer == null || !_locationUpdateTimer!.isActive) {
         _startLocationUpdateTimer();
       }
-      // Send location immediately when app comes to foreground so caretaker sees fresh update
       _shareLocationInBackground();
     } else if (state == AppLifecycleState.paused) {
       _reminderCheckTimer?.cancel();
-      // Keep location timer running in background so updates continue every 5 min
-      // (OS may still suspend; when resumed we restart timer and send once)
     }
   }
 
@@ -125,15 +142,11 @@ class _PatientHomePageState extends State<PatientHomePage>
     try {
       final user = _authService.currentUser;
       if (user == null) return;
-
-      final now = Timestamp.now();
-
-      // Get all reminders that are due but not completed
       final snapshot = await _firestore
           .collection('reminders')
           .where('patientId', isEqualTo: user.uid)
           .where('completed', isEqualTo: false)
-          .where('time', isLessThanOrEqualTo: now)
+          .where('time', isLessThanOrEqualTo: Timestamp.now())
           .orderBy('time')
           .limit(1)
           .get();
@@ -141,93 +154,36 @@ class _PatientHomePageState extends State<PatientHomePage>
       if (snapshot.docs.isNotEmpty) {
         final doc = snapshot.docs.first;
         final reminder = doc.data();
-
-        // Format time
         final time = (reminder['time'] as Timestamp).toDate();
-        final timeStr = DateFormat('h:mm a').format(time);
-
-        // Show dialog
         _showReminderDialog({
           'reminderId': doc.id,
           'title': reminder['title'] ?? 'Reminder',
           'description': reminder['description'] ?? '',
-          'time': timeStr,
+          'time': DateFormat('h:mm a').format(time),
         });
       }
     } catch (e) {
-      print('Error checking pending reminders: $e');
+      debugPrint('Error checking pending reminders: $e');
     }
   }
 
   void _showReminderDialog(Map<String, dynamic> reminderData) {
+    final reminderId = reminderData['reminderId'] ?? '';
+    if (reminderId.isNotEmpty && _shownReminderDialogs.contains(reminderId)) return;
+    if (reminderId.isNotEmpty) _shownReminderDialogs.add(reminderId);
+
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => ReminderDialog(
+      builder: (_) => ReminderDialog(
         title: reminderData['title'] ?? 'Reminder',
         description: reminderData['description'] ?? '',
         time: reminderData['time'] ?? '',
-        reminderId: reminderData['reminderId'] ?? '',
+        reminderId: reminderId,
       ),
-    );
+    ).then((_) => _shownReminderDialogs.remove(reminderId));
   }
 
-  void _showSignOutConfirmation() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Row(
-          children: [
-            Icon(Icons.logout, color: Color(0xFF8FA9C9)),
-            SizedBox(width: 12),
-            Text('Sign Out'),
-          ],
-        ),
-        content: const Text(
-          'Are you sure you want to sign out?',
-          style: TextStyle(fontSize: 16),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text(
-              'Cancel',
-              style: TextStyle(
-                color: Color(0xFF666666),
-                fontSize: 16,
-              ),
-            ),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(context); // Close dialog first
-              await _authService.signOut();
-              if (mounted) {
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (_) => const LoginPage()),
-                );
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF8FA9C9),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            child: const Text(
-              'Sign Out',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Share location in background; never blocks UI or crashes the app.
   Future<void> _shareLocationInBackground() async {
     try {
       final user = _authService.currentUser;
@@ -236,15 +192,13 @@ class _PatientHomePageState extends State<PatientHomePage>
         if (mounted && ok) setState(() => _locationShared = true);
       }
     } catch (e) {
-      print('Location share error (non-fatal): $e');
+      debugPrint('Location share error (non-fatal): $e');
     }
   }
 
-  /// User taps "Share location" – request permission and share (visible ask).
   Future<void> _onShareLocationTap() async {
     final user = _authService.currentUser;
-    if (user == null) return;
-    if (_isSharingLocation) return;
+    if (user == null || _isSharingLocation) return;
     setState(() => _isSharingLocation = true);
     try {
       final ok = await _locationService.shareLocation(user.uid);
@@ -255,24 +209,18 @@ class _PatientHomePageState extends State<PatientHomePage>
         });
         if (!ok) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Couldn\'t get location. Turn on GPS, try outdoors, and tap Allow location again.',
-              ),
-              backgroundColor: Color(0xFF8FA9C9),
-              duration: Duration(seconds: 5),
+            SnackBar(
+              content: const Text('Could not get location. Make sure GPS is on.'),
+              backgroundColor: const Color(0xFF5A7A1A),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              margin: const EdgeInsets.all(16),
             ),
           );
         }
       }
     } catch (e) {
-      print('Location share error: $e');
-      if (mounted) {
-        setState(() => _isSharingLocation = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Location error: $e')),
-        );
-      }
+      if (mounted) setState(() => _isSharingLocation = false);
     }
   }
 
@@ -283,6 +231,7 @@ class _PatientHomePageState extends State<PatientHomePage>
         final userData = await _authService.getUserData(user.uid);
         if (userData != null) {
           setState(() {
+            patientFirstName = userData['firstName'] ?? '';
             patientName = '${userData['firstName']} ${userData['lastName']}';
           });
         }
@@ -292,593 +241,145 @@ class _PatientHomePageState extends State<PatientHomePage>
           setState(() {
             emergencyContactName = patientData['emergencyContact'] ?? 'Not set';
             emergencyContactPhone = patientData['emergencyContactNumber'] ?? '';
-            currentLocation = patientData['address'] ?? 'Home';
+            currentLocation = patientData['address'] ?? '';
           });
         }
 
-        // Load today's reminders
+        // Load caretaker info for the "Call caretaker" button
+        await _loadCaretakerInfo(user.uid);
         await _loadTodaysReminders(user.uid);
-        // Location is shared in background via _shareLocationInBackground() after UI loads
       }
     } catch (e) {
-      print('Error loading patient data: $e');
+      debugPrint('Error loading patient data: $e');
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() => _isLoading = false);
+        _fadeController.forward();
+      }
+    }
+  }
+
+  Future<void> _loadCaretakerInfo(String patientId) async {
+    try {
+      final snapshot = await _firestore
+          .collection('patient_caretaker_relationships')
+          .where('patientId', isEqualTo: patientId)
+          .where('status', isEqualTo: 'accepted')
+          .limit(1)
+          .get();
+
+      if (snapshot.docs.isNotEmpty) {
+        final rel = snapshot.docs.first.data();
+        final caretakerId = rel['caretakerId'] as String?;
+        if (caretakerId != null) {
+          final caretakerData = await _authService.getUserData(caretakerId);
+          if (caretakerData != null && mounted) {
+            setState(() {
+              caretakerName = caretakerData['firstName'] ?? 'Caretaker';
+              caretakerPhone = caretakerData['phone'] ?? '';
+            });
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading caretaker info: $e');
     }
   }
 
   Future<void> _loadTodaysReminders(String patientId) async {
     try {
       final now = DateTime.now();
-      final startOfDay = DateTime(now.year, now.month, now.day);
-      final endOfDay = DateTime(now.year, now.month, now.day, 23, 59, 59);
-
       final snapshot = await _firestore
           .collection('reminders')
           .where('patientId', isEqualTo: patientId)
-          .where('time', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
-          .where('time', isLessThanOrEqualTo: Timestamp.fromDate(endOfDay))
+          .where('time',
+          isGreaterThanOrEqualTo:
+          Timestamp.fromDate(DateTime(now.year, now.month, now.day)))
+          .where('time',
+          isLessThanOrEqualTo: Timestamp.fromDate(
+              DateTime(now.year, now.month, now.day, 23, 59, 59)))
           .orderBy('time')
           .get();
 
       setState(() {
-        reminders = snapshot.docs
-            .map((doc) => {'id': doc.id, ...doc.data()})
-            .toList();
-
-        // Set current activity to the next upcoming reminder
-        if (reminders.isNotEmpty) {
-          final nextReminder = reminders.first;
-          final time = (nextReminder['time'] as Timestamp?)?.toDate();
-          final timeStr = time != null ? DateFormat('h:mm a').format(time) : '';
-          currentActivity = '${nextReminder['title']} at $timeStr';
-        }
+        reminders =
+            snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
       });
     } catch (e) {
-      print('Error loading reminders: $e');
+      debugPrint('Error loading reminders: $e');
     }
   }
 
-  /// Handle pull-to-refresh
   Future<void> _handleRefresh() async {
     try {
       final user = _authService.currentUser;
       if (user == null) return;
-
-      // Reload user and patient data
-      final userData = await _authService.getUserData(user.uid);
-      if (userData != null && mounted) {
-        setState(() {
-          patientName = '${userData['firstName']} ${userData['lastName']}';
-        });
-      }
-
-      final patientData = await _authService.getPatientData(user.uid);
-      if (patientData != null && mounted) {
-        setState(() {
-          emergencyContactName = patientData['emergencyContact'] ?? 'Not set';
-          emergencyContactPhone = patientData['emergencyContactNumber'] ?? '';
-          currentLocation = patientData['address'] ?? 'Home';
-        });
-      }
-
-      // Reload reminders and check for pending ones
-      await Future.wait([
-        _loadTodaysReminders(user.uid),
-        _checkForPendingReminders(),
+      setState(() => _now = DateTime.now());
+      final results = await Future.wait([
+        _authService.getUserData(user.uid),
+        _authService.getPatientData(user.uid),
       ]);
-
-      // Re-share location in background (don't await)
-      _shareLocationInBackground();
-
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Page refreshed'),
-            backgroundColor: Color(0xFF8FA9C9),
-            duration: Duration(seconds: 2),
-          ),
-        );
+        final userData = results[0];
+        final patientData = results[1];
+        setState(() {
+          if (userData != null) {
+            patientFirstName = userData['firstName'] ?? '';
+            patientName = '${userData['firstName']} ${userData['lastName']}';
+          }
+          if (patientData != null) {
+            emergencyContactName = patientData['emergencyContact'] ?? 'Not set';
+            emergencyContactPhone = patientData['emergencyContactNumber'] ?? '';
+            currentLocation = patientData['address'] ?? '';
+          }
+        });
+        await Future.wait([
+          _loadCaretakerInfo(user.uid),
+          _loadTodaysReminders(user.uid),
+          _checkForPendingReminders(),
+        ]);
+        _shareLocationInBackground();
       }
     } catch (e) {
-      print('Error refreshing: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error refreshing: $e'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
+      debugPrint('Error refreshing: $e');
     }
   }
 
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _pulseController.dispose();
-    _reminderCheckTimer?.cancel();
-    _locationUpdateTimer?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Scaffold(
-        backgroundColor: Color(0xFFF5F5F5),
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
-      body: SafeArea(
-        child: RefreshIndicator(
-          onRefresh: _handleRefresh,
-          color: const Color(0xFF8FA9C9),
-          backgroundColor: Colors.white,
-          child: SingleChildScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Landing Page (Patient)',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Color(0xFF666666),
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: _showSignOutConfirmation,
-                        icon: const Icon(Icons.logout),
-                        tooltip: 'Logout',
-                        color: const Color(0xFF666666),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  _buildEmergencyButton(),
-                  const SizedBox(height: 20),
-                  _buildWelcomeCard(),
-                  const SizedBox(height: 20),
-                  _buildLocationShareCard(),
-                  const SizedBox(height: 20),
-                  _buildActivityCard(),
-                  const SizedBox(height: 20),
-                  _buildRemindersCard(),
-                ],
-              ),
+  void _showSignOutConfirmation() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: Colors.white,
+        title: const Text('Sign out?',
+            style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF3E2723))),
+        content: const Text('Are you sure you want to sign out?',
+            style: TextStyle(color: Color(0xFF8D6E63))),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel',
+                style: TextStyle(color: Color(0xFF8D6E63))),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _authService.signOut();
+              if (mounted) {
+                Navigator.pushReplacement(context,
+                    MaterialPageRoute(builder: (_) => const LoginPage()));
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF5A7A1A),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+              elevation: 0,
             ),
+            child: const Text('Sign Out',
+                style: TextStyle(fontWeight: FontWeight.w600)),
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEmergencyButton() {
-    return ScaleTransition(
-      scale: _pulseAnimation,
-      child: Container(
-        width: double.infinity,
-        height: 80,
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFFFF4757), Color(0xFFFF6B7A)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFFFF4757).withOpacity(0.4),
-              blurRadius: 20,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: _handleEmergencyCall,
-            borderRadius: BorderRadius.circular(20),
-            child: const Center(
-              child: Text(
-                'Emergency',
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                  letterSpacing: 1.2,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildWelcomeCard() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: const Color(0xFFE8C4C8),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  InkWell(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const ProfilePage(isCaretaker: false),
-                        ),
-                      );
-                    },
-                    borderRadius: BorderRadius.circular(25),
-                    child: Container(
-                      width: 50,
-                      height: 50,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.7),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.person,
-                        size: 28,
-                        color: Color(0xFF8FA9C9),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  const Text(
-                    'Profile',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF3D2C31),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Text(
-                  'Welcome $patientName',
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF3D2C31),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: const Color(0xFFD4ADB1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.home,
-                  size: 22,
-                  color: Color(0xFF3D2C31),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  currentLocation.isEmpty ? 'You are Home' : currentLocation,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF3D2C31),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          const Divider(color: Color(0xFFD4ADB1), thickness: 1.5),
-          const SizedBox(height: 12),
-          const Text(
-            'Emergency Contact',
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF3D2C31),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            emergencyContactName,
-            style: const TextStyle(
-              fontSize: 16,
-              color: Color(0xFF5A4046),
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          if (emergencyContactPhone.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                const Icon(
-                  Icons.phone,
-                  size: 18,
-                  color: Color(0xFF5A4046),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  emergencyContactPhone,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    color: Color(0xFF5A4046),
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLocationShareCard() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFF8FA9C9).withOpacity(0.5), width: 2),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF8FA9C9).withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(
-                  Icons.location_on,
-                  size: 28,
-                  color: Color(0xFF8FA9C9),
-                ),
-              ),
-              const SizedBox(width: 14),
-              const Expanded(
-                child: Text(
-                  'Share location with caretaker',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF3D2C31),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Allow location so your caretaker can see where you are on the map.',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey.shade700,
-              height: 1.3,
-            ),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _isSharingLocation ? null : _onShareLocationTap,
-              icon: _isSharingLocation
-                  ? const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-              )
-                  : Icon(
-                _locationShared ? Icons.check_circle : Icons.my_location,
-                color: Colors.white,
-                size: 22,
-              ),
-              label: Text(
-                _isSharingLocation
-                    ? 'Getting location...'
-                    : _locationShared
-                    ? 'Location shared'
-                    : 'Allow location',
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
-                ),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF8FA9C9),
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildActivityCard() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFE8C4C8), width: 2),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'What you are supposed to be doing',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF3D2C31),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: const Color(0xFFE8C4C8),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              currentActivity,
-              style: const TextStyle(
-                fontSize: 18,
-                color: Color(0xFF3D2C31),
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRemindersCard() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFE8C4C8), width: 2),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            "Today's reminders",
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF3D2C31),
-            ),
-          ),
-          const SizedBox(height: 16),
-          if (reminders.isEmpty)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF5E6E8),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Text(
-                'No reminders for today',
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Color(0xFF7A6A70),
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
-            )
-          else
-            ...reminders.map((reminder) {
-              final time = (reminder['time'] as Timestamp?)?.toDate();
-              final timeStr = time != null ? DateFormat('h:mm a').format(time) : '';
-              return Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                margin: const EdgeInsets.only(bottom: 12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE8C4C8),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      reminder['title'] ?? '',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        color: Color(0xFF3D2C31),
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    if (timeStr.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        timeStr,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: Color(0xFF5A4046),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              );
-            }),
         ],
       ),
     );
@@ -889,42 +390,846 @@ class _PatientHomePageState extends State<PatientHomePage>
       _showErrorDialog('No emergency contact number set');
       return;
     }
-
-    final phoneNumber = emergencyContactPhone.replaceAll(RegExp(r'[^\d]'), '');
-    final uri = Uri(scheme: 'tel', path: phoneNumber);
-
+    final uri = Uri(
+        scheme: 'tel',
+        path: emergencyContactPhone.replaceAll(RegExp(r'[^\d]'), ''));
     try {
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri);
       } else {
-        if (mounted) {
-          _showErrorDialog('Unable to make phone call');
-        }
+        if (mounted) _showErrorDialog('Unable to make phone call');
       }
     } catch (e) {
-      if (mounted) {
-        _showErrorDialog('Error: ${e.toString()}');
-      }
+      if (mounted) _showErrorDialog('Error: ${e.toString()}');
+    }
+  }
+
+  Future<void> _handleCallCaretaker() async {
+    final phone = caretakerPhone.isNotEmpty ? caretakerPhone : '';
+    if (phone.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('No caretaker phone number available.'),
+          backgroundColor: const Color(0xFF8D6E63),
+          behavior: SnackBarBehavior.floating,
+          shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+      return;
+    }
+    final uri = Uri(
+        scheme: 'tel', path: phone.replaceAll(RegExp(r'[^\d]'), ''));
+    try {
+      if (await canLaunchUrl(uri)) await launchUrl(uri);
+    } catch (e) {
+      debugPrint('Error calling caretaker: $e');
     }
   }
 
   void _showErrorDialog(String message) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (_) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Row(
-          children: [
-            Icon(Icons.error_outline, color: Color(0xFFFF4757)),
-            SizedBox(width: 12),
-            Text('Error'),
-          ],
-        ),
+        title: const Row(children: [
+          Icon(Icons.error_outline, color: Color(0xFFE57373)),
+          SizedBox(width: 12),
+          Text('Error'),
+        ]),
         content: Text(message),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'))
+        ],
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _pulseController.dispose();
+    _fadeController.dispose();
+    _reminderCheckTimer?.cancel();
+    _locationUpdateTimer?.cancel();
+    _clockTimer?.cancel();
+    super.dispose();
+  }
+
+  String get _greeting {
+    final hour = _now.hour;
+    if (hour < 12) return 'Good morning';
+    if (hour < 17) return 'Good afternoon';
+    return 'Good evening';
+  }
+
+  Map<String, dynamic>? get _nextReminder {
+    for (final r in reminders) {
+      final time = (r['time'] as Timestamp?)?.toDate();
+      if (time != null &&
+          time.isAfter(DateTime.now()) &&
+          r['completed'] != true) {
+        return r;
+      }
+    }
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        backgroundColor: Color(0xFFFAF6F4),
+        body: Center(
+            child: CircularProgressIndicator(color: Color(0xFF5A7A1A))),
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFFAF6F4),
+      body: Stack(
+        children: [
+          // Background blobs
+          Positioned(
+            top: -60,
+            right: -60,
+            child: Container(
+              width: 260,
+              height: 260,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFFE8C9C0).withOpacity(0.35),
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: 100,
+            left: -80,
+            child: Container(
+              width: 280,
+              height: 280,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFF6B8E23).withOpacity(0.07),
+              ),
+            ),
+          ),
+
+          SafeArea(
+            child: FadeTransition(
+              opacity: _fadeAnimation,
+              child: RefreshIndicator(
+                onRefresh: _handleRefresh,
+                color: const Color(0xFF5A7A1A),
+                backgroundColor: Colors.white,
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+
+                      // ── Top bar ────────────────────────────────────
+                      Row(
+                        children: [
+                          // Logo + wordmark
+                          Row(
+                            children: [
+                              Image.asset(
+                                'assets/images/logo_no_text.png',
+                                width: 28,
+                                height: 28,
+                                errorBuilder: (_, __, ___) => const Icon(
+                                  Icons.favorite_rounded,
+                                  color: Color(0xFFD4A5A5),
+                                  size: 24,
+                                ),
+                              ),
+                              const SizedBox(width: 7),
+                              RichText(
+                                text: const TextSpan(
+                                  children: [
+                                    TextSpan(
+                                      text: 'Cogni',
+                                      style: TextStyle(
+                                        fontSize: 17,
+                                        fontWeight: FontWeight.w300,
+                                        color: Color(0xFF5D4037),
+                                        letterSpacing: -0.5,
+                                      ),
+                                    ),
+                                    TextSpan(
+                                      text: 'Care',
+                                      style: TextStyle(
+                                        fontSize: 17,
+                                        fontWeight: FontWeight.w800,
+                                        color: Color(0xFF5D4037),
+                                        letterSpacing: -0.5,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const Spacer(),
+                          // Inbox
+                          Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              GestureDetector(
+                                onTap: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                      builder: (_) => const InboxPage(
+                                          isCaretaker: false)),
+                                ),
+                                child: _TopBarButton(
+                                    icon: Icons.notifications_none_rounded),
+                              ),
+                              if (_pendingRequestCount > 0)
+                                Positioned(
+                                  right: 0,
+                                  top: 0,
+                                  child: Container(
+                                    width: 14,
+                                    height: 14,
+                                    decoration: const BoxDecoration(
+                                      color: Color(0xFFE57373),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Center(
+                                      child: Text(
+                                        _pendingRequestCount > 9
+                                            ? '9+'
+                                            : '$_pendingRequestCount',
+                                        style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 8,
+                                            fontWeight: FontWeight.bold),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(width: 8),
+                          // Profile
+                          GestureDetector(
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) =>
+                                  const ProfilePage(isCaretaker: false)),
+                            ),
+                            child: _TopBarButton(icon: Icons.person_outline_rounded),
+                          ),
+                          const SizedBox(width: 8),
+                          // Sign out
+                          GestureDetector(
+                            onTap: _showSignOutConfirmation,
+                            child: _TopBarButton(icon: Icons.logout_rounded),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 24),
+
+                      // ── Date + greeting card ───────────────────────
+                      _buildDateCard(),
+
+                      const SizedBox(height: 20),
+
+                      // ── Emergency button ───────────────────────────
+                      ScaleTransition(
+                        scale: _pulseAnimation,
+                        child: GestureDetector(
+                          onTap: _handleEmergencyCall,
+                          child: Container(
+                            width: double.infinity,
+                            height: 72,
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [
+                                  Color(0xFFE53935),
+                                  Color(0xFFEF5350)
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              borderRadius: BorderRadius.circular(22),
+                              boxShadow: [
+                                BoxShadow(
+                                  color:
+                                  const Color(0xFFE53935).withOpacity(0.35),
+                                  blurRadius: 24,
+                                  offset: const Offset(0, 10),
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: const [
+                                Icon(Icons.phone_in_talk_rounded,
+                                    color: Colors.white, size: 26),
+                                SizedBox(width: 12),
+                                Text(
+                                  'Emergency',
+                                  style: TextStyle(
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.white,
+                                    letterSpacing: 0.3,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 12),
+
+                      // ── Call caretaker button ──────────────────────
+                      _buildCallCaretakerButton(),
+
+                      const SizedBox(height: 28),
+
+                      // ── Right now ──────────────────────────────────
+                      const _SectionHeader(label: 'RIGHT NOW'),
+                      const SizedBox(height: 10),
+                      _buildNowCard(),
+
+                      const SizedBox(height: 24),
+
+                      // ── Today's reminders ──────────────────────────
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const _SectionHeader(label: "TODAY'S REMINDERS"),
+                          Text(
+                            '${reminders.length} total',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color:
+                              const Color(0xFF8D6E63).withOpacity(0.6),
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      _buildRemindersList(),
+
+                      const SizedBox(height: 24),
+
+                      // ── Bottom row: location + emergency contact ───
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(child: _buildLocationTile()),
+                          const SizedBox(width: 12),
+                          Expanded(child: _buildEmergencyContactTile()),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Date + greeting card ──────────────────────────────────────────────────
+  Widget _buildDateCard() {
+    final dayName = DateFormat('EEEE').format(_now);       // "Tuesday"
+    final dateStr = DateFormat('MMMM d, y').format(_now);  // "March 3, 2026"
+    final timeStr = DateFormat('h:mm a').format(_now);     // "9:41 AM"
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFB07A6E).withOpacity(0.09),
+            blurRadius: 30,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$_greeting, $patientFirstName',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: const Color(0xFF8D6E63).withOpacity(0.8),
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  dayName,
+                  style: const TextStyle(
+                    fontSize: 26,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF3E2723),
+                    letterSpacing: -0.5,
+                    height: 1.1,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  dateStr,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    color: Color(0xFF8D6E63),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Time display
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFAF6F4),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Text(
+              timeStr,
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF5A7A1A),
+                letterSpacing: -0.5,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Call caretaker button ─────────────────────────────────────────────────
+  Widget _buildCallCaretakerButton() {
+    final name = caretakerName.isNotEmpty ? caretakerName : 'Caretaker';
+    return GestureDetector(
+      onTap: _handleCallCaretaker,
+      child: Container(
+        width: double.infinity,
+        height: 60,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: const Color(0xFFEDE5E2),
+            width: 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFFB07A6E).withOpacity(0.08),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF4E4E1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(
+                Icons.phone_outlined,
+                color: Color(0xFFD4A5A5),
+                size: 17,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              'Call $name',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF5D4037),
+                letterSpacing: 0.1,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── "Right now" card ──────────────────────────────────────────────────────
+  Widget _buildNowCard() {
+    final next = _nextReminder;
+    if (next == null) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(22),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(22),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFFB07A6E).withOpacity(0.09),
+              blurRadius: 30,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: const Color(0xFF5A7A1A).withOpacity(0.10),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: const Icon(
+                Icons.check_circle_outline_rounded,
+                color: Color(0xFF5A7A1A),
+                size: 26,
+              ),
+            ),
+            const SizedBox(width: 16),
+            const Expanded(
+              child: Text(
+                'Nothing scheduled right now.\nTake it easy — you\'re all caught up!',
+                style: TextStyle(
+                  fontSize: 15,
+                  color: Color(0xFF5D4037),
+                  fontWeight: FontWeight.w500,
+                  height: 1.5,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final time = (next['time'] as Timestamp?)?.toDate();
+    final timeStr =
+    time != null ? DateFormat('h:mm a').format(time) : '';
+    final description = next['description'] as String? ?? '';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: const Color(0xFF5A7A1A),
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF5A7A1A).withOpacity(0.30),
+            blurRadius: 28,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.20),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  timeStr,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const Spacer(),
+              const Icon(Icons.access_time_rounded,
+                  color: Colors.white54, size: 18),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(
+            next['title'] ?? '',
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              color: Colors.white,
+              letterSpacing: -0.3,
+              height: 1.2,
+            ),
+          ),
+          if (description.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              description,
+              style: TextStyle(
+                fontSize: 15,
+                color: Colors.white.withOpacity(0.75),
+                height: 1.4,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ── Reminders list ────────────────────────────────────────────────────────
+  Widget _buildRemindersList() {
+    if (reminders.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFFB07A6E).withOpacity(0.07),
+              blurRadius: 20,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: const Text(
+          'No reminders for today',
+          style: TextStyle(
+            fontSize: 15,
+            color: Color(0xFF8D6E63),
+            fontStyle: FontStyle.italic,
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFB07A6E).withOpacity(0.09),
+            blurRadius: 30,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        children: reminders.asMap().entries.map((entry) {
+          final i = entry.key;
+          final reminder = entry.value;
+          final time = (reminder['time'] as Timestamp?)?.toDate();
+          final timeStr =
+          time != null ? DateFormat('h:mm a').format(time) : '';
+          final isCompleted = reminder['completed'] == true;
+          final isLast = i == reminders.length - 1;
+
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 18, vertical: 14),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 56,
+                      child: Text(
+                        timeStr,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: isCompleted
+                              ? const Color(0xFFBDB0AC)
+                              : const Color(0xFF5A7A1A),
+                        ),
+                      ),
+                    ),
+                    Container(
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: isCompleted
+                            ? const Color(0xFFDDD5D0)
+                            : const Color(0xFF5A7A1A),
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Text(
+                        reminder['title'] ?? '',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: isCompleted
+                              ? const Color(0xFFBDB0AC)
+                              : const Color(0xFF3E2723),
+                          decoration: isCompleted
+                              ? TextDecoration.lineThrough
+                              : TextDecoration.none,
+                        ),
+                      ),
+                    ),
+                    if (isCompleted)
+                      const Icon(Icons.check_rounded,
+                          color: Color(0xFF5A7A1A), size: 18),
+                  ],
+                ),
+              ),
+              if (!isLast)
+                const Divider(
+                  height: 1,
+                  indent: 18,
+                  endIndent: 18,
+                  color: Color(0xFFF0E8E5),
+                ),
+            ],
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  // ── Location tile ─────────────────────────────────────────────────────────
+  Widget _buildLocationTile() {
+    return GestureDetector(
+      onTap: _isSharingLocation ? null : _onShareLocationTap,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFFB07A6E).withOpacity(0.09),
+              blurRadius: 20,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: _locationShared
+                    ? const Color(0xFF5A7A1A).withOpacity(0.10)
+                    : const Color(0xFFF4E4E1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: _isSharingLocation
+                  ? const Padding(
+                padding: EdgeInsets.all(8),
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: Color(0xFF5A7A1A)),
+              )
+                  : Icon(
+                _locationShared
+                    ? Icons.location_on_rounded
+                    : Icons.location_off_rounded,
+                size: 18,
+                color: _locationShared
+                    ? const Color(0xFF5A7A1A)
+                    : const Color(0xFFD4A5A5),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              _locationShared ? 'Sharing' : 'Location',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: _locationShared
+                    ? const Color(0xFF5A7A1A)
+                    : const Color(0xFF5D4037),
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              _locationShared ? 'Caretaker can see you' : 'Tap to share',
+              style: const TextStyle(fontSize: 12, color: Color(0xFF8D6E63)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Emergency contact tile ────────────────────────────────────────────────
+  Widget _buildEmergencyContactTile() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFB07A6E).withOpacity(0.09),
+            blurRadius: 20,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF4E4E1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(Icons.favorite_border_rounded,
+                size: 18, color: Color(0xFFD4A5A5)),
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            'Emergency',
+            style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF5D4037)),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            emergencyContactName.isEmpty || emergencyContactName == 'Not set'
+                ? 'Not set'
+                : emergencyContactName,
+            style:
+            const TextStyle(fontSize: 12, color: Color(0xFF8D6E63)),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
@@ -932,7 +1237,52 @@ class _PatientHomePageState extends State<PatientHomePage>
   }
 }
 
-// Reminder Dialog Widget
+// ── Reusable top bar icon button ──────────────────────────────────────────────
+class _TopBarButton extends StatelessWidget {
+  final IconData icon;
+  const _TopBarButton({required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 38,
+      height: 38,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFB07A6E).withOpacity(0.12),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Icon(icon, color: const Color(0xFFD4A5A5), size: 18),
+    );
+  }
+}
+
+// ── Section header ────────────────────────────────────────────────────────────
+class _SectionHeader extends StatelessWidget {
+  final String label;
+  const _SectionHeader({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label,
+      style: const TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w700,
+        color: Color(0xFF8D6E63),
+        letterSpacing: 1.2,
+      ),
+    );
+  }
+}
+
+// ── Reminder Dialog ───────────────────────────────────────────────────────────
 class ReminderDialog extends StatelessWidget {
   final String title;
   final String description;
@@ -956,144 +1306,148 @@ class ReminderDialog extends StatelessWidget {
             .update({'completed': true});
       }
     } catch (e) {
-      print('Error marking reminder as complete: $e');
+      debugPrint('Error marking reminder complete: $e');
     }
   }
 
   Future<void> _snoozeReminder(BuildContext context) async {
     try {
       if (reminderId.isEmpty) return;
-
-      // Update the same reminder's time to 5 minutes from now
-      final newTime = DateTime.now().add(const Duration(minutes: 5));
-
       await FirebaseFirestore.instance
           .collection('reminders')
           .doc(reminderId)
           .update({
-        'time': Timestamp.fromDate(newTime),
+        'time': Timestamp.fromDate(
+            DateTime.now().add(const Duration(minutes: 5))),
         'completed': false,
       });
     } catch (e) {
-      print('Error snoozing reminder: $e');
+      debugPrint('Error snoozing reminder: $e');
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(24),
-      ),
+      backgroundColor: Colors.transparent,
       child: Container(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(28),
         decoration: BoxDecoration(
-          color: const Color(0xFFF5E6E8),
-          borderRadius: BorderRadius.circular(24),
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(28),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFFB07A6E).withOpacity(0.18),
+              blurRadius: 40,
+              offset: const Offset(0, 16),
+            ),
+          ],
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-              Icons.notification_important,
-              size: 64,
-              color: Color(0xFF8FA9C9),
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: const Color(0xFF5A7A1A).withOpacity(0.10),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: const Icon(Icons.alarm_rounded,
+                  color: Color(0xFF5A7A1A), size: 30),
             ),
             const SizedBox(height: 16),
+            if (time.isNotEmpty)
+              Container(
+                padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFAF6F4),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  time,
+                  style: const TextStyle(
+                      fontSize: 13,
+                      color: Color(0xFF8D6E63),
+                      fontWeight: FontWeight.w600),
+                ),
+              ),
+            const SizedBox(height: 10),
             Text(
               title,
               style: const TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF3D2C31),
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF3E2723),
+                letterSpacing: -0.3,
               ),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Scheduled for: $time',
-              style: const TextStyle(
-                fontSize: 16,
-                color: Color(0xFF5A4046),
-                fontWeight: FontWeight.w600,
-              ),
-            ),
             if (description.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE8C4C8),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  description,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    color: Color(0xFF3D2C31),
-                  ),
-                  textAlign: TextAlign.center,
-                ),
+              const SizedBox(height: 12),
+              Text(
+                description,
+                style: const TextStyle(
+                    fontSize: 15,
+                    color: Color(0xFF8D6E63),
+                    height: 1.5),
+                textAlign: TextAlign.center,
               ),
             ],
-            const SizedBox(height: 24),
+            const SizedBox(height: 28),
             SizedBox(
               width: double.infinity,
+              height: 52,
               child: ElevatedButton(
                 onPressed: () async {
                   await _markAsComplete(context);
-                  if (context.mounted) {
-                    Navigator.of(context).pop();
-                  }
+                  if (context.mounted) Navigator.of(context).pop();
                 },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF8FA9C9),
+                  backgroundColor: const Color(0xFF5A7A1A),
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+                      borderRadius: BorderRadius.circular(14)),
+                  elevation: 0,
                 ),
-                child: const Text(
-                  'Understood',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+                child: const Text('Got it',
+                    style: TextStyle(
+                        fontSize: 17, fontWeight: FontWeight.w700)),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             SizedBox(
               width: double.infinity,
+              height: 52,
               child: OutlinedButton(
                 onPressed: () async {
                   await _snoozeReminder(context);
                   if (context.mounted) {
                     Navigator.of(context).pop();
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Reminder snoozed for 5 minutes'),
-                        backgroundColor: Color(0xFF8FA9C9),
+                      SnackBar(
+                        content:
+                        const Text('Reminder snoozed for 5 minutes'),
+                        backgroundColor: const Color(0xFF5A7A1A),
+                        behavior: SnackBarBehavior.floating,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                        margin: const EdgeInsets.all(16),
                       ),
                     );
                   }
                 },
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFF8FA9C9),
-                  side: const BorderSide(color: Color(0xFF8FA9C9), width: 2),
-                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  foregroundColor: const Color(0xFF5A7A1A),
+                  side: const BorderSide(
+                      color: Color(0xFFEDE5E2), width: 1.5),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+                      borderRadius: BorderRadius.circular(14)),
                 ),
-                child: const Text(
-                  'Remind me in 5 minutes',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+                child: const Text('Remind me in 5 minutes',
+                    style: TextStyle(
+                        fontSize: 15, fontWeight: FontWeight.w600)),
               ),
             ),
           ],
