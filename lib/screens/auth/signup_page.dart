@@ -338,10 +338,12 @@ class _SignUpPageState extends State<SignUpPage>
                                       icon: Icons.alternate_email_rounded,
                                       keyboardType: TextInputType.emailAddress,
                                       validator: (v) {
-                                        if (v == null || v.isEmpty)
+                                        if (v == null || v.isEmpty) {
                                           return 'Email is required';
-                                        if (!v.contains('@'))
+                                        }
+                                        if (!v.contains('@')) {
                                           return 'Enter a valid email';
+                                        }
                                         return null;
                                       },
                                     ),
@@ -349,7 +351,7 @@ class _SignUpPageState extends State<SignUpPage>
                                     _buildField(
                                       controller: _passwordController,
                                       label: 'Password',
-                                      hint: 'At least 6 characters',
+                                      hint: 'Min 8 chars, upper, lower, number, special',
                                       icon: Icons.lock_outline_rounded,
                                       obscureText: _obscurePassword,
                                       suffixIcon: IconButton(
@@ -360,15 +362,26 @@ class _SignUpPageState extends State<SignUpPage>
                                           color: const Color(0xFFBDB0AC),
                                           size: 20,
                                         ),
-                                        onPressed: () => setState(() =>
-                                        _obscurePassword =
-                                        !_obscurePassword),
+                                        onPressed: () => setState(
+                                          () => _obscurePassword = !_obscurePassword,
+                                        ),
                                       ),
                                       validator: (v) {
-                                        if (v == null || v.isEmpty)
+                                        if (v == null || v.isEmpty) {
                                           return 'Password is required';
-                                        if (v.length < 6)
-                                          return 'At least 6 characters';
+                                        }
+                                        final password = v;
+                                        if (password.length < 8) {
+                                          return 'At least 8 characters';
+                                        }
+                                        final hasUpper = RegExp(r'[A-Z]').hasMatch(password);
+                                        final hasLower = RegExp(r'[a-z]').hasMatch(password);
+                                        final hasDigit = RegExp(r'[0-9]').hasMatch(password);
+                                        final hasSpecial =
+                                            RegExp(r'[!@#\$%^&*(),.?":{}|<>_\-]').hasMatch(password);
+                                        if (!hasUpper || !hasLower || !hasDigit || !hasSpecial) {
+                                          return 'Must include upper, lower, number, and special character';
+                                        }
                                         return null;
                                       },
                                     ),
