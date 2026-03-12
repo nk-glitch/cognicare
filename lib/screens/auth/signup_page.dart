@@ -286,14 +286,25 @@ class _SignUpPageState extends State<SignUpPage> {
                   controller: _passwordController,
                   label: 'Password',
                   icon: Icons.lock,
-                  hint: 'At least 6 characters',
+                  hint: 'Min 8 chars, upper, lower, number, special',
                   obscureText: true,
                   validator: (value) {
                     if (value == null || value.isEmpty) {
                       return '⚠️ Please enter a password';
                     }
-                    if (value.length < 6) {
-                      return '⚠️ Password must be at least 6 characters';
+                    final password = value;
+                    if (password.length < 8) {
+                      return '⚠️ Password must be at least 8 characters';
+                    }
+                    final hasUpper = RegExp(r'[A-Z]').hasMatch(password);
+                    final hasLower = RegExp(r'[a-z]').hasMatch(password);
+                    final hasDigit = RegExp(r'[0-9]').hasMatch(password);
+                    final hasSpecial = RegExp(r'[!@#\$%^&*(),.?":{}|<>_\-]').hasMatch(password);
+                    if (!hasUpper ||
+                        !hasLower ||
+                        !hasDigit ||
+                        !hasSpecial) {
+                      return '⚠️ Must include upper, lower, number, and special character';
                     }
                     return null;
                   },

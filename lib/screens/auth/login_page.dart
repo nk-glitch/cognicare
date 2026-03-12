@@ -292,7 +292,7 @@ class _LoginPageState extends State<LoginPage> {
                   _buildTextField(
                     controller: _passwordController,
                     label: 'Your Password',
-                    hint: 'Enter your password',
+                    hint: 'Min 8 chars, upper, lower, number, special',
                     icon: Icons.lock,
                     obscureText: true,
                     isFocused: _passwordFocused,
@@ -303,8 +303,19 @@ class _LoginPageState extends State<LoginPage> {
                       if (value == null || value.isEmpty) {
                         return '⚠️ Please enter your password';
                       }
-                      if (value.length < 6) {
-                        return '⚠️ Password must be at least 6 characters';
+                      final password = value;
+                      if (password.length < 8) {
+                        return '⚠️ Password must be at least 8 characters';
+                      }
+                      final hasUpper = RegExp(r'[A-Z]').hasMatch(password);
+                      final hasLower = RegExp(r'[a-z]').hasMatch(password);
+                      final hasDigit = RegExp(r'[0-9]').hasMatch(password);
+                      final hasSpecial = RegExp(r'[!@#\$%^&*(),.?":{}|<>_\-]').hasMatch(password);
+                      if (!hasUpper ||
+                          !hasLower ||
+                          !hasDigit ||
+                          !hasSpecial) {
+                        return '⚠️ Must include upper, lower, number, and special character';
                       }
                       return null;
                     },
