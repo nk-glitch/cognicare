@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:latlong2/latlong.dart';
 import '../../services/location_service.dart';
 import '../../services/geofence_service.dart';
@@ -453,7 +454,21 @@ class _LocationMapPageState extends State<LocationMapPage>
                 TileLayer(
                   urlTemplate:
                   'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  userAgentPackageName: 'com.example.app',
+                  userAgentPackageName: 'com.cognicare.app',
+                  retinaMode: MediaQuery.of(context).devicePixelRatio > 1.0,
+                ),
+                RichAttributionWidget(
+                  attributions: [
+                    TextSourceAttribution(
+                      '© OpenStreetMap contributors',
+                      onTap: () => launchUrl(
+                        Uri.parse('https://openstreetmap.org/copyright'),
+                      ),
+                    ),
+                  ],
+                  alignment: AttributionAlignment.bottomLeft,
+                  popupBackgroundColor: Colors.white,
+                  popupBorderRadius: BorderRadius.circular(8),
                 ),
 
                 // ── Geofence circle ──────────────────────────────────────
