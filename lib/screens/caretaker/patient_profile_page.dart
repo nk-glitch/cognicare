@@ -1,6 +1,10 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:http/http.dart' as http;
+import '../../services/geofence_service.dart';
 import 'location_map_page.dart';
 import 'calendar_page.dart';
 import 'patient_detail_page.dart';
@@ -34,12 +38,31 @@ class _PatientProfilePageState extends State<PatientProfilePage>
   late Animation<double>   _fadeAnimation;
   late Animation<Offset>   _slideAnimation;
 
-  static const _bg      = Color(0xFFF7F4F2);
-  static const _card    = Colors.white;
-  static const _accent  = Color(0xFF5A7A1A);
-  static const _rose    = Color(0xFFD4A5A5);
-  static const _text    = Color(0xFF1E1A18);
-  static const _subtext = Color(0xFF7A6E6A);
+  static const _bg         = Color(0xFFF7F4F2);
+  static const _card       = Colors.white;
+  static const _accent     = Color(0xFF5A7A1A);
+  static const _accentSoft = Color(0xFFEEF3E6);
+  static const _rose       = Color(0xFFD4A5A5);
+  static const _roseSoft   = Color(0xFFF4E4E1);
+  static const _text       = Color(0xFF1E1A18);
+  static const _subtext    = Color(0xFF7A6E6A);
+  static const _danger     = Color(0xFFE53935);
+
+  // Geofence
+  final GeofenceService _geofenceService = GeofenceService();
+  final _addressController = TextEditingController();
+  final _labelController   = TextEditingController(text: 'Safe Zone');
+  double  _radiusMeters    = 200;
+  bool    _isGeocoding     = false;
+  bool    _isSavingGeo     = false;
+  bool    _hasGeofence     = false;
+  bool    _geoActive       = true;
+  double? _resolvedLat;
+  double? _resolvedLng;
+  String? _resolvedDisplay;
+
+  static const double _minRadius = 50;
+  static const double _maxRadius = 2000;
 
   @override
   void initState() {
@@ -50,10 +73,16 @@ class _PatientProfilePageState extends State<PatientProfilePage>
     _slideAnimation = Tween<Offset>(begin: const Offset(0, 0.05), end: Offset.zero)
         .animate(CurvedAnimation(parent: _animController, curve: Curves.easeOutCubic));
     _loadPatientData();
+    _loadGeofence();
   }
 
   @override
-  void dispose() { _animController.dispose(); super.dispose(); }
+  void dispose() {
+    _animController.dispose();
+    _addressController.dispose();
+    _labelController.dispose();
+    super.dispose();
+  }
 
   Future<void> _loadPatientData() async {
     try {
@@ -84,6 +113,115 @@ class _PatientProfilePageState extends State<PatientProfilePage>
     }
   }
 
+  // ── Geofence methods ──────────────────────────────────────────────────────
+
+  Future<void> _loadGeofence() async {
+    final data = await _geofenceService.getGeofence(widget.patientId);
+    if (!mounted || data == null) return;
+    setState(() {
+      _radiusMeters    = data['radiusMeters'] as double;
+      _geoActive       = data['isActive']     as bool?   ?? true;
+      _hasGeofence     = true;
+      _resolvedLat     = data['centerLat']    as double;
+      _resolvedLng     = data['centerLng']    as double;
+      _resolvedDisplay = data['addressDisplay'] as String?;
+      _labelController.text = data['label'] as String? ?? 'Safe Zone';
+      if (_resolvedDisplay != null) _addressController.text = _resolvedDisplay!;
+    });
+  }
+
+  Future<void> _geocodeAddress() async {
+    final query = _addressController.text.trim();
+    if (query.isEmpty) { _showSnack('Enter an address first.'); return; }
+    setState(() { _isGeocoding = true; _resolvedLat = null; _resolvedLng = null; _resolvedDisplay = null; });
+    try {
+      final uri = Uri.https('nominatim.openstreetmap.org', '/search', {'q': query, 'format': 'json', 'limit': '1'});
+      final res = await http.get(uri, headers: {'User-Agent': 'CogniCareApp/1.0'});
+      if (res.statusCode != 200) { _showSnack('Geocoding failed. Try again.'); return; }
+      final results = json.decode(res.body) as List;
+      if (results.isEmpty) { _showSnack('Address not found — try being more specific.'); return; }
+      final top = results.first as Map<String, dynamic>;
+      setState(() {
+        _resolvedLat     = double.parse(top['lat'] as String);
+        _resolvedLng     = double.parse(top['lon'] as String);
+        _resolvedDisplay = top['display_name'] as String?;
+      });
+    } catch (e) {
+      _showSnack('Network error: $e');
+    } finally {
+      if (mounted) setState(() => _isGeocoding = false);
+    }
+  }
+
+  Future<void> _saveGeofence() async {
+    if (_resolvedLat == null || _resolvedLng == null) {
+      _showSnack('Search for an address first.'); return;
+    }
+    setState(() => _isSavingGeo = true);
+    try {
+      final caretakerId = FirebaseAuth.instance.currentUser?.uid ?? '';
+      await _geofenceService.saveGeofence(
+        patientId: widget.patientId, caretakerId: caretakerId,
+        centerLat: _resolvedLat!, centerLng: _resolvedLng!,
+        radiusMeters: _radiusMeters,
+        label: _labelController.text.trim().isEmpty ? 'Safe Zone' : _labelController.text.trim(),
+        addressDisplay: _resolvedDisplay,
+      );
+      if (!mounted) return;
+      setState(() => _hasGeofence = true);
+      _showSnack('Safe zone saved ✓', success: true);
+    } catch (e) {
+      _showSnack('Failed to save: $e');
+    } finally {
+      if (mounted) setState(() => _isSavingGeo = false);
+    }
+  }
+
+  Future<void> _deleteGeofence() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Remove Safe Zone', style: TextStyle(fontWeight: FontWeight.w700)),
+        content: Text('This will stop location alerts for ${widget.patientName}.',
+            style: const TextStyle(color: Color(0xFF7A6E6A))),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remove', style: TextStyle(color: Color(0xFFE53935), fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await _geofenceService.deleteGeofence(widget.patientId);
+    if (!mounted) return;
+    setState(() {
+      _hasGeofence = false; _resolvedLat = null; _resolvedLng = null; _resolvedDisplay = null;
+      _addressController.clear();
+    });
+    _showSnack('Safe zone removed', success: true);
+  }
+
+  Future<void> _toggleGeoActive(bool value) async {
+    await _geofenceService.toggleGeofence(widget.patientId, isActive: value);
+    if (mounted) setState(() => _geoActive = value);
+  }
+
+  void _showSnack(String msg, {bool success = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor: success ? _accent : _danger,
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    ));
+  }
+
+  String get _radiusLabel {
+    if (_radiusMeters >= 1000) return '${(_radiusMeters / 1000).toStringAsFixed(1)} km';
+    return '${_radiusMeters.round()} m';
+  }
 
   void _goTo(Widget page) {
     Navigator.pushReplacement(context, InstantPushMaterialRoute(
@@ -264,6 +402,11 @@ class _PatientProfilePageState extends State<PatientProfilePage>
                               ]),
                             ),
                             const SizedBox(height: 24),
+                            const SizedBox(height: 24),
+                            const _SectionLabel(label: 'SAFE ZONE'),
+                            const SizedBox(height: 10),
+                            _buildSafeZoneCard(),
+                            const SizedBox(height: 24),
                             const _SectionLabel(label: 'MEMBERSHIP'),
                             const SizedBox(height: 10),
                             Container(
@@ -309,6 +452,180 @@ class _PatientProfilePageState extends State<PatientProfilePage>
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSafeZoneCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: _card, borderRadius: BorderRadius.circular(20),
+        boxShadow: [BoxShadow(
+            color: const Color(0xFFB07A6E).withOpacity(0.08),
+            blurRadius: 20, offset: const Offset(0, 6))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Label field ────────────────────────────────────────────────
+          Row(children: [
+            Container(
+              width: 36, height: 36,
+              decoration: BoxDecoration(color: _accentSoft, borderRadius: BorderRadius.circular(10)),
+              child: const Icon(Icons.label_outline_rounded, size: 17, color: _accent),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: TextField(
+                controller: _labelController,
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: _text),
+                decoration: InputDecoration(
+                  hintText: 'Zone label (e.g. Home)',
+                  hintStyle: TextStyle(color: _subtext.withOpacity(0.6), fontSize: 14),
+                  border: InputBorder.none, isDense: true,
+                ),
+              ),
+            ),
+          ]),
+          const SizedBox(height: 14),
+          const Divider(height: 1, color: Color(0xFFF0EBE8)),
+          const SizedBox(height: 14),
+          // ── Address field ──────────────────────────────────────────────
+          Row(children: [
+            Container(
+              width: 36, height: 36,
+              decoration: BoxDecoration(color: _accentSoft, borderRadius: BorderRadius.circular(10)),
+              child: const Icon(Icons.location_on_outlined, size: 17, color: _accent),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: TextField(
+                controller: _addressController,
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: _text),
+                decoration: InputDecoration(
+                  hintText: '123 Main St, City, State…',
+                  hintStyle: TextStyle(color: _subtext.withOpacity(0.6), fontSize: 14),
+                  border: InputBorder.none, isDense: true,
+                ),
+                onSubmitted: (_) => _geocodeAddress(),
+                textInputAction: TextInputAction.search,
+              ),
+            ),
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: _isGeocoding ? null : _geocodeAddress,
+              child: Container(
+                width: 36, height: 36,
+                decoration: BoxDecoration(color: _accent, borderRadius: BorderRadius.circular(10)),
+                child: _isGeocoding
+                    ? const Padding(padding: EdgeInsets.all(9),
+                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                    : const Icon(Icons.search_rounded, color: Colors.white, size: 18),
+              ),
+            ),
+          ]),
+          // Resolved address badge
+          if (_resolvedDisplay != null) ...[const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(color: _accentSoft, borderRadius: BorderRadius.circular(10)),
+              child: Row(children: [
+                const Icon(Icons.check_circle_rounded, size: 15, color: _accent),
+                const SizedBox(width: 8),
+                Expanded(child: Text(_resolvedDisplay!, maxLines: 2, overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12, color: _accent, fontWeight: FontWeight.w500))),
+              ]),
+            ),
+          ],
+          const SizedBox(height: 14),
+          const Divider(height: 1, color: Color(0xFFF0EBE8)),
+          const SizedBox(height: 14),
+          // ── Radius slider ──────────────────────────────────────────────
+          Row(children: [
+            const Expanded(child: Text('Alert radius',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF3E2723)))),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+              decoration: BoxDecoration(color: _accentSoft, borderRadius: BorderRadius.circular(10)),
+              child: Text(_radiusLabel,
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: _accent)),
+            ),
+          ]),
+          SliderTheme(
+            data: SliderThemeData(
+              trackHeight: 4,
+              activeTrackColor: _accent,
+              inactiveTrackColor: _accent.withOpacity(0.15),
+              thumbColor: _accent,
+              overlayColor: _accent.withOpacity(0.12),
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+            ),
+            child: Slider(
+              min: _minRadius, max: _maxRadius, value: _radiusMeters,
+              onChanged: (v) => setState(() => _radiusMeters = v),
+            ),
+          ),
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            Text('${_minRadius.round()} m', style: const TextStyle(fontSize: 11, color: Color(0xFF7A6E6A))),
+            Text('${(_maxRadius / 1000).round()} km', style: const TextStyle(fontSize: 11, color: Color(0xFF7A6E6A))),
+          ]),
+          // ── Active toggle (existing zones only) ────────────────────────
+          if (_hasGeofence) ...[const SizedBox(height: 14),
+            const Divider(height: 1, color: Color(0xFFF0EBE8)),
+            const SizedBox(height: 6),
+            Row(children: [
+              Text('Alerts active',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600,
+                      color: _geoActive ? _accent : _subtext)),
+              const Spacer(),
+              Switch.adaptive(value: _geoActive, onChanged: _toggleGeoActive, activeColor: _accent),
+            ]),
+          ],
+          const SizedBox(height: 14),
+          // ── Save button ────────────────────────────────────────────────
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _isSavingGeo ? null : _saveGeofence,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _accent, foregroundColor: Colors.white,
+                disabledBackgroundColor: _accent.withOpacity(0.5),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                elevation: 0,
+              ),
+              child: _isSavingGeo
+                  ? const SizedBox(width: 20, height: 20,
+                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                  : Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                const Icon(Icons.shield_rounded, size: 16, color: Colors.white),
+                const SizedBox(width: 8),
+                Text(_hasGeofence ? 'Update Safe Zone' : 'Save Safe Zone',
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+              ]),
+            ),
+          ),
+          if (_hasGeofence) ...[const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton(
+                onPressed: _deleteGeofence,
+                style: TextButton.styleFrom(
+                  foregroundColor: _danger,
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  Icon(Icons.delete_outline_rounded, size: 15),
+                  SizedBox(width: 6),
+                  Text('Remove safe zone', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                ]),
+              ),
+            ),
+          ],
         ],
       ),
     );

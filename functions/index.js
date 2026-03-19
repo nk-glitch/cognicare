@@ -296,3 +296,115 @@ async function alertCaretakers(db, reminderId, reminder) {
         console.error(`Error alerting caretakers for reminder ${reminderId}:`, error);
     }
 }
+// ─── Geofence Breach Alert ────────────────────────────────────────────────────
+// Triggers whenever a patient's location is written to Firestore.
+// If the patient just crossed from inside → outside their safe zone,
+// sends a push notification to the caretaker and logs to caretaker_alerts.
+
+const { onDocumentWritten } = require('firebase-functions/v2/firestore');
+
+function haversineDistance(lat1, lng1, lat2, lng2) {
+    const R = 6371000;
+    const toRad = (deg) => (deg * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function formatDistance(metres) {
+    if (metres >= 1000) return `${(metres / 1000).toFixed(1)} km`;
+    return `${Math.round(metres)} m`;
+}
+
+exports.checkGeofence = onDocumentWritten(
+    'patient_locations/{patientId}',
+    async (event) => {
+        const db = admin.firestore();
+        const { patientId } = event.params;
+
+        const newData = event.data?.after?.data();
+        if (!newData) return;
+
+        const { latitude, longitude } = newData;
+
+        // Load geofence
+        const geofenceSnap = await db.collection('geofences').doc(patientId).get();
+        if (!geofenceSnap.exists) return;
+        const geofence = geofenceSnap.data();
+        if (!geofence.isActive) return;
+
+        // Calculate distance
+        const distance = haversineDistance(
+            latitude, longitude,
+            geofence.centerLat, geofence.centerLng,
+        );
+        const isOutside = distance > geofence.radiusMeters;
+
+        // Read previous breach state — only alert on inside → outside transition
+        const stateRef = db.collection('geofence_states').doc(patientId);
+        const stateSnap = await stateRef.get();
+        const wasOutside = stateSnap.exists ? (stateSnap.data().isOutside ?? false) : false;
+
+        await stateRef.set(
+            { isOutside, lastDistance: Math.round(distance), updatedAt: admin.firestore.FieldValue.serverTimestamp() },
+            { merge: true },
+        );
+
+        if (!isOutside || wasOutside) return;
+
+        // Get caretaker FCM token
+        const caretakerSnap = await db.collection('users').doc(geofence.caretakerId).get();
+        if (!caretakerSnap.exists) return;
+        const fcmToken = caretakerSnap.data()?.fcmToken;
+        if (!fcmToken) return;
+
+        // Get patient name
+        const patientSnap = await db.collection('users').doc(patientId).get();
+        const patientData = patientSnap.data() || {};
+        const patientName =
+            `${patientData.firstName || ''} ${patientData.lastName || ''}`.trim() || 'Your patient';
+
+        const distStr = formatDistance(distance);
+
+        // Send FCM push
+        await admin.messaging().send({
+            token: fcmToken,
+            notification: {
+                title: '⚠️ Safe zone alert',
+                body: `${patientName} has left "${geofence.label}" (${distStr} away)`,
+            },
+            data: {
+                type: 'geofence_alert',
+                patientId,
+                patientName,
+                distance: String(Math.round(distance)),
+                geofenceLabel: geofence.label,
+                caretakerId: geofence.caretakerId,
+            },
+            android: {
+                priority: 'high',
+                notification: { channelId: 'geofence_channel', color: '#F57C00' },
+            },
+            apns: { payload: { aps: { sound: 'default', badge: 1 } } },
+        }).catch(err => console.error(`[geofence] FCM failed: ${err}`));
+
+        // Log to caretaker_alerts (shows in inbox)
+        await db.collection('caretaker_alerts').add({
+            caretakerId: geofence.caretakerId,
+            patientId,
+            patientName,
+            type: 'geofence_breach',
+            geofenceLabel: geofence.label,
+            distance: Math.round(distance),
+            latitude,
+            longitude,
+            isRead: false,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        console.log(`[geofence] Breach alert sent for ${patientId} (${distStr} from "${geofence.label}")`);
+    }
+);
