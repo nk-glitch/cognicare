@@ -3,7 +3,6 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 /// Handles location for patients (share to Firestore) and caretakers (read patient location).
-/// Uses Firestore so caretaker on a different device can see patient location.
 class LocationService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
@@ -31,7 +30,6 @@ class LocationService {
     return await Geolocator.isLocationServiceEnabled();
   }
 
-  /// Timeout so GPS wait doesn't freeze the app. Low accuracy gets a fix faster (indoor/emulator).
   static const Duration _locationTimeout = Duration(seconds: 25);
 
   Future<Position?> getCurrentLocation() async {
@@ -40,7 +38,6 @@ class LocationService {
       if (!serviceEnabled) return null;
       final hasPermission = await requestPermission();
       if (!hasPermission) return null;
-      // Use low accuracy first for faster fix (works better indoors / on emulator)
       return await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.low,
       ).timeout(
@@ -56,8 +53,6 @@ class LocationService {
     }
   }
 
-  /// Patient: share current location to Firestore so caretakers can see it.
-  /// Returns true if location was saved, false if unavailable or timed out.
   Future<bool> shareLocation(String userId) async {
     try {
       final position = await getCurrentLocation();
@@ -83,7 +78,6 @@ class LocationService {
     }
   }
 
-  /// Caretaker: get stored patient location from Firestore.
   Future<Map<String, dynamic>?> getStoredLocation(String patientId) async {
     try {
       final doc = await _firestore.collection(_locationCollection).doc(patientId).get();
@@ -102,7 +96,6 @@ class LocationService {
     return null;
   }
 
-  /// Caretaker: listen to real-time patient location updates from Firestore.
   Stream<Map<String, dynamic>?> listenToLocation(String patientId) {
     return _firestore
         .collection(_locationCollection)

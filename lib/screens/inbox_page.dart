@@ -456,7 +456,6 @@ class _InboxPageState extends State<InboxPage>
 
                 const SizedBox(height: 20),
 
-                // ── Body ─────────────────────────────────────────
                 Expanded(
                   child: _isLoading
                       ? const Center(

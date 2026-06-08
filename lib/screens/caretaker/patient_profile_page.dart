@@ -252,7 +252,7 @@ class _PatientProfilePageState extends State<PatientProfilePage>
           SafeArea(
             child: Column(
               children: [
-                // Top bar — outside animation so it stays static on tab switch
+                // Top bar
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
                   child: Row(
@@ -572,7 +572,6 @@ class _PatientProfilePageState extends State<PatientProfilePage>
             Text('${_minRadius.round()} m', style: const TextStyle(fontSize: 11, color: Color(0xFF7A6E6A))),
             Text('${(_maxRadius / 1000).round()} km', style: const TextStyle(fontSize: 11, color: Color(0xFF7A6E6A))),
           ]),
-          // ── Active toggle (existing zones only) ────────────────────────
           if (_hasGeofence) ...[const SizedBox(height: 14),
             const Divider(height: 1, color: Color(0xFFF0EBE8)),
             const SizedBox(height: 6),

@@ -9,8 +9,6 @@ import 'calendar_page.dart';
 import 'caretaker_home_page.dart';
 import 'patient_profile_page.dart';
 
-// MaterialPageRoute that appears instantly but pops with the standard
-// MaterialPageRoute slide — identical to the patient detail → caretaker home animation.
 class InstantPushMaterialRoute<T> extends MaterialPageRoute<T> {
   InstantPushMaterialRoute({required super.builder});
 
@@ -19,7 +17,7 @@ class InstantPushMaterialRoute<T> extends MaterialPageRoute<T> {
       Animation<double> secondaryAnimation, Widget child) {
     if (animation.status == AnimationStatus.forward ||
         animation.status == AnimationStatus.dismissed) {
-      return child; // instant push — no animation
+      return child;
     }
     return super.buildTransitions(context, animation, secondaryAnimation, child);
   }
@@ -51,13 +49,13 @@ class _PatientDetailPageState extends State<PatientDetailPage>
   List<Map<String, dynamic>> _reminders = [];
   bool _isLoading = true;
 
-  // Heart rate state
+  // Heart rate
   int? _heartRate;
   DateTime? _heartRateUpdatedAt;
   bool _hasWatchData = false; // True once Firestore confirms the field exists
   StreamSubscription<DocumentSnapshot>? _patientSub;
 
-  // HR alert state — prevents spamming the caretaker on every 5-min sync
+  // HR alert state
   static const _hrElevatedThreshold = 100; // bpm — above normal resting range
   static const _hrAlertCooldown = Duration(minutes: 10);
   bool _hrCurrentlyElevated = false;
@@ -99,9 +97,7 @@ class _PatientDetailPageState extends State<PatientDetailPage>
 
   // ── Notifications ──────────────────────────────────────────────────────────
 
-  /// Called every time a new heart rate value arrives from Firestore.
-  /// Fires a notification only on the leading edge of an elevated episode
-  /// and at most once per [_hrAlertCooldown] to avoid repeated alerts.
+  /// runs at most once per heart rate cooldown to avoid repeated/spamming alerts.
   Future<void> _checkHeartRateAlert(int bpm) async {
     final isElevated = bpm > _hrElevatedThreshold;
 
@@ -110,7 +106,7 @@ class _PatientDetailPageState extends State<PatientDetailPage>
       return;
     }
 
-    // Already elevated and within cooldown window — stay quiet
+
     if (_hrCurrentlyElevated) {
       final lastAlert = _lastHrAlertTime;
       if (lastAlert != null &&
@@ -119,11 +115,9 @@ class _PatientDetailPageState extends State<PatientDetailPage>
       }
     }
 
-    // New elevated episode (or cooldown expired) — fire the alert
     _hrCurrentlyElevated = true;
     _lastHrAlertTime     = DateTime.now();
 
-    // In-app banner — shown when the caretaker has the page open
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -154,8 +148,7 @@ class _PatientDetailPageState extends State<PatientDetailPage>
       );
     }
 
-    // System notification — reuses the already-initialised plugin instance
-    // from NotificationService (no double-init needed)
+    // System notification
     await NotificationService.flutterLocalNotificationsPlugin.show(
       id:    widget.patientId.hashCode,
       title: '❤️ Elevated Heart Rate',
@@ -177,10 +170,10 @@ class _PatientDetailPageState extends State<PatientDetailPage>
   // ── Data ───────────────────────────────────────────────────────────────────
 
   Future<void> _loadPatientData() async {
-    // Cancel any existing subscription first (e.g. on refresh)
+    // Cancel any existing subscription first
     await _patientSub?.cancel();
 
-    // Real-time listener on the patient document so heart rate updates live
+    //heart rate updates live
     _patientSub = _firestore
         .collection('patients')
         .doc(widget.patientId)
@@ -195,15 +188,12 @@ class _PatientDetailPageState extends State<PatientDetailPage>
           _heartRate = newHr;
           final ts = data['heartRateUpdatedAt'] as Timestamp?;
           _heartRateUpdatedAt = ts?.toDate();
-          // Field presence determines whether a watch has ever synced
           _hasWatchData = data.containsKey('heartRate');
         });
-        // Check after setState so widget.patientName is available for the banner
         if (newHr != null) _checkHeartRateAlert(newHr);
       }
     }, onError: (e) => debugPrint('Patient stream error: $e'));
 
-    // Reminders are still a one-shot load (refresh pulls new data)
     try {
       final remindersSnapshot = await _firestore
           .collection('reminders')
@@ -371,7 +361,7 @@ class _PatientDetailPageState extends State<PatientDetailPage>
             ),
           ),
           const SizedBox(width: 14),
-          // Logo + wordmark
+          // Logo
           Row(
             children: [
               ColoredBox(
@@ -544,7 +534,7 @@ class _PatientDetailPageState extends State<PatientDetailPage>
 
   // ── Heart rate card ────────────────────────────────────────────────────────
   Widget _buildHeartRateCard() {
-    // Build a human-readable "last updated" string
+    // show when it was last updated
     String lastUpdated = '';
     if (_heartRateUpdatedAt != null) {
       final diff = DateTime.now().difference(_heartRateUpdatedAt!);

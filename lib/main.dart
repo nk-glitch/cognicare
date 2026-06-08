@@ -69,9 +69,7 @@ class AppEntry extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // MediaQuery can return Size.zero during Flutter's warm-up frame.
-    // Rendering AmbientMode (or any Navigator-less widget) at that point
-    // leaves _history empty and causes the '_history.isNotEmpty' crash.
+
     final size = MediaQuery.of(context).size;
     if (size == Size.zero) {
       return const Scaffold(
@@ -82,9 +80,6 @@ class AppEntry extends StatelessWidget {
     final shortestSide = size.shortestSide;
     final isWatch = shortestSide < 300;
 
-    // AmbientMode from wear_plus is only valid on Wear OS (Android).
-    // Guard with Platform.isAndroid so it's never instantiated on iOS
-    // or in any other environment where wear_plus isn't active.
     if (isWatch && Platform.isAndroid) {
       return AmbientMode(
         builder: (context, mode, _) {
@@ -99,13 +94,7 @@ class AppEntry extends StatelessWidget {
 }
 
 // ── Watch active face ─────────────────────────────────────────────────────────
-//
-// The StreamBuilder gives us the Firebase Auth user, but we ALSO need to check
-// userType in Firestore before routing — otherwise a caretaker who signs in
-// will reach WatchPatientScreen before the login page's signOut() fires.
-//
-// We use a FutureBuilder nested inside the StreamBuilder so that every time the
-// auth state changes (sign-in or sign-out) we re-fetch the role from Firestore.
+
 
 class _WatchActiveFace extends StatelessWidget {
   const _WatchActiveFace();
@@ -132,26 +121,21 @@ class _WatchActiveFace extends StatelessWidget {
 
         final user = authSnap.data;
 
-        // Not signed in → login page
         if (user == null) return const WatchLoginPage();
 
-        // Signed in — now verify the role before granting access
         return FutureBuilder<String?>(
           future: _fetchUserType(user.uid),
           builder: (context, roleSnap) {
-            // Still fetching role — show loader
             if (roleSnap.connectionState == ConnectionState.waiting) {
               return const _WatchLoader();
             }
 
             final userType = roleSnap.data ?? '';
 
-            // Caretaker account — show rejection screen; it signs out on swipe
             if (userType == 'caretaker') {
               return const _WatchCaretakerRejection();
             }
 
-            // Patient (or empty/unknown type — fail safe to patient screen)
             return WatchPatientScreen(patientId: user.uid);
           },
         );
@@ -174,8 +158,6 @@ class _WatchLoader extends StatelessWidget {
   }
 }
 
-/// Displayed when a caretaker tries to log in on the watch.
-/// Stays visible until the user swipes it away, then signs out.
 class _WatchCaretakerRejection extends StatefulWidget {
   const _WatchCaretakerRejection();
 
@@ -191,13 +173,11 @@ class _WatchCaretakerRejectionState extends State<_WatchCaretakerRejection> {
     if (_signingOut) return;
     setState(() => _signingOut = true);
     await FirebaseAuth.instance.signOut();
-    // Auth stream in _WatchActiveFace will detect null and show login page.
   }
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      // Any horizontal or vertical swipe dismisses the screen
       onHorizontalDragEnd: (d) {
         if ((d.primaryVelocity ?? 0).abs() > 80) _signOut();
       },

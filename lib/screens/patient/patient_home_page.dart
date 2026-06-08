@@ -68,7 +68,7 @@ class _PatientHomePageState extends State<PatientHomePage>
     );
     _fadeAnimation = CurvedAnimation(parent: _fadeController, curve: Curves.easeOut);
 
-    // Update clock every minute
+    // Update clock
     _clockTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted) setState(() => _now = DateTime.now());
     });
@@ -241,7 +241,6 @@ class _PatientHomePageState extends State<PatientHomePage>
           });
         }
 
-        // Load caretaker info for the "Call caretaker" button
         await _loadCaretakerInfo(user.uid);
         await _loadTodaysReminders(user.uid);
       }
@@ -510,7 +509,7 @@ class _PatientHomePageState extends State<PatientHomePage>
                       // ── Top bar ────────────────────────────────────
                       Row(
                         children: [
-                          // Logo + wordmark
+                          // Logo
                           Row(
                             children: [
                               Image.asset(
@@ -618,7 +617,7 @@ class _PatientHomePageState extends State<PatientHomePage>
 
                       const SizedBox(height: 20),
 
-                      // ── Call caretaker button (primary red) ─────────
+                      // ── Call caretaker button (main red button) ─────────
                       ScaleTransition(
                         scale: _pulseAnimation,
                         child: GestureDetector(
@@ -698,7 +697,7 @@ class _PatientHomePageState extends State<PatientHomePage>
 
                       const SizedBox(height: 24),
 
-                      // ── Bottom row: location + emergency contact ───
+                      // ── Bottom row: location───
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -718,11 +717,11 @@ class _PatientHomePageState extends State<PatientHomePage>
     );
   }
 
-  // ── Date + greeting card ──────────────────────────────────────────────────
+  // ── Date + greeting ──────────────────────────────────────────────────
   Widget _buildDateCard() {
-    final dayName = DateFormat('EEEE').format(_now);       // "Tuesday"
-    final dateStr = DateFormat('MMMM d, y').format(_now);  // "March 3, 2026"
-    final timeStr = DateFormat('h:mm a').format(_now);     // "9:41 AM"
+    final dayName = DateFormat('EEEE').format(_now);
+    final dateStr = DateFormat('MMMM d, y').format(_now);
+    final timeStr = DateFormat('h:mm a').format(_now);
 
     return Container(
       width: double.infinity,
@@ -775,7 +774,7 @@ class _PatientHomePageState extends State<PatientHomePage>
               ],
             ),
           ),
-          // Time display
+          // Time
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
@@ -797,7 +796,7 @@ class _PatientHomePageState extends State<PatientHomePage>
     );
   }
 
-  // ── "Right now" card ──────────────────────────────────────────────────────
+  // ── Right now ──────────────────────────────────────────────────────
   Widget _buildNowCard() {
     final next = _nextReminder;
     if (next == null) {
@@ -1144,7 +1143,7 @@ class _PatientHomePageState extends State<PatientHomePage>
   }
 }
 
-// ── Reusable top bar icon button ──────────────────────────────────────────────
+// ── top bar button ──────────────────────────────────────────────
 class _TopBarButton extends StatelessWidget {
   final IconData icon;
   const _TopBarButton({required this.icon});
@@ -1189,7 +1188,7 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-// ── Reminder Dialog ───────────────────────────────────────────────────────────
+// ── Reminder ───────────────────────────────────────────────────────────
 class ReminderDialog extends StatelessWidget {
   final String title;
   final String description;

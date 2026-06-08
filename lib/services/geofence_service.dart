@@ -2,11 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:math';
 
 /// Manages geofence data in Firestore and provides distance calculations.
-///
-/// Firestore structure:
-///   geofences/{patientId} → { patientId, caretakerId, centerLat, centerLng,
-///                             radiusMeters, label, isActive, updatedAt }
-///   geofence_states/{patientId} → { isOutside, updatedAt }  (written by Cloud Function)
+
 class GeofenceService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
@@ -63,7 +59,6 @@ class GeofenceService {
     }
   }
 
-  /// Real-time stream of geofence changes for a patient.
   Stream<Map<String, dynamic>?> listenToGeofence(String patientId) {
     return _firestore
         .collection(_geofencesCollection)
@@ -88,7 +83,6 @@ class GeofenceService {
 
   // ── Distance ───────────────────────────────────────────────────────────────
 
-  /// Haversine distance in metres between two WGS-84 coordinates.
   static double distanceInMeters(
       double lat1,
       double lng1,
@@ -109,7 +103,6 @@ class GeofenceService {
 
   static double _toRad(double deg) => deg * pi / 180;
 
-  /// Human-readable distance string.
   static String formatDistance(double meters) {
     if (meters >= 1000) return '${(meters / 1000).toStringAsFixed(1)} km';
     return '${meters.round()} m';

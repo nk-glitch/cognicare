@@ -41,7 +41,7 @@ class _CalendarPageState extends State<CalendarPage>
 
   String get _patientName => widget.patientName;
 
-  // ── Palette (mirrors CaretakerHomePage) ──────────────────────────────────
+  // ── Palette ──────────────────────────────────
   static const _bg       = Color(0xFFF7F4F2);
   static const _card     = Colors.white;
   static const _accent   = Color(0xFF5A7A1A);
@@ -278,11 +278,11 @@ class _CalendarPageState extends State<CalendarPage>
                         ),
                       ),
                     ),
-                  ),                // closes FadeTransition
-                ),                  // closes Expanded
+                  ),
+                ),
               ],                    // closes Column children
-            ),                      // closes Column
-          ),                        // closes SafeArea
+            ),
+          ),
         ],
       ),
     );
@@ -360,7 +360,7 @@ class _CalendarPageState extends State<CalendarPage>
             ],
           ),
           const Spacer(),
-          // Date pill
+          // Date
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(

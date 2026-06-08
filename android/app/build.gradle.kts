@@ -1,3 +1,6 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -5,8 +8,14 @@ plugins {
     id("com.google.gms.google-services")
 }
 
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+}
+
 android {
-    namespace = "com.example.cognicare"
+    namespace = "com.cognicareapp.app"
     compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
@@ -21,17 +30,35 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.cognicare"
+        applicationId = "com.cognicareapp.app"
         minSdk = 26
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        multiDexEnabled = true  // ← ADD THIS LINE
+        multiDexEnabled = true
+    }
+
+    signingConfigs {
+        create("release") {
+            if (keystorePropertiesFile.exists()) {
+                keyAlias = keystoreProperties["keyAlias"] as String
+                keyPassword = keystoreProperties["keyPassword"] as String
+                storeFile = file(keystoreProperties["storeFile"] as String)
+                storePassword = keystoreProperties["storePassword"] as String
+            }
+        }
     }
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (keystorePropertiesFile.exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
+            // Minification disabled for initial release; enable later with proguard-rules.pro
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }

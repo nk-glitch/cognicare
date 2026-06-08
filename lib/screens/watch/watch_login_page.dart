@@ -208,7 +208,7 @@ class _WatchLoginPageState extends State<WatchLoginPage>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // ── Logo strip ─────────────────────────────
+                      //Logo
                       Center(
                         child: Column(
                           children: [
@@ -386,7 +386,7 @@ class _WatchLoginPageState extends State<WatchLoginPage>
   }
 }
 
-// ── Compact watch text field ──────────────────────────────────────────────────
+// ── watch text field ──────────────────────────────────────────────────
 class _WatchField extends StatelessWidget {
   final TextEditingController controller;
   final String label;

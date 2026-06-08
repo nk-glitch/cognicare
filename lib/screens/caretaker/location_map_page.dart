@@ -45,7 +45,6 @@ class _LocationMapPageState extends State<LocationMapPage>
   StreamSubscription<Map<String, dynamic>?>? _locationSubscription;
   StreamSubscription<Map<String, dynamic>?>? _geofenceSubscription;
 
-  // Geofence state
   Map<String, dynamic>? _geofence;
 
   // ── Palette ───────────────────────────────────────────────────────────────
@@ -454,7 +453,7 @@ class _LocationMapPageState extends State<LocationMapPage>
                 TileLayer(
                   urlTemplate:
                   'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  userAgentPackageName: 'com.cognicare.app',
+                  userAgentPackageName: 'com.cognicareapp.app',
                   retinaMode: MediaQuery.of(context).devicePixelRatio > 1.0,
                 ),
                 RichAttributionWidget(

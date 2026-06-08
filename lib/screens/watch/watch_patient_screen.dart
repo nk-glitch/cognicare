@@ -9,14 +9,11 @@ import 'dart:math';
 import '../../services/auth_service.dart';
 import '../../services/notification_service.dart';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Design tokens — full CogniCare system, mirrored from phone app
-// ─────────────────────────────────────────────────────────────────────────────
 const _kBg         = Color(0xFFF7F4F2);
 const _kCard       = Colors.white;
-const _kAccent     = Color(0xFF5A7A1A);   // CogniCare green
+const _kAccent     = Color(0xFF5A7A1A);   // CogniCare's green
 const _kAccentSoft = Color(0xFFEEF3E6);
-const _kRose       = Color(0xFFD4A5A5);   // CogniCare rose
+const _kRose       = Color(0xFFD4A5A5);   // CogniCare's rose
 const _kRoseSoft   = Color(0xFFF4E4E1);
 const _kText       = Color(0xFF1E1A18);
 const _kSubtext    = Color(0xFF7A6E6A);
@@ -24,13 +21,11 @@ const _kBorder     = Color(0xFFEDE5E2);
 const _kShadow     = Color(0xFFB07A6E);
 const _kEmergency  = Color(0xFFE57373);
 
-// Shared base — prevents Flutter's default underline decoration on Wear OS
 const _kBase = TextStyle(
   decoration: TextDecoration.none,
   decorationColor: Colors.transparent,
 );
 
-// ─────────────────────────────────────────────────────────────────────────────
 class WatchPatientScreen extends StatefulWidget {
   final String patientId;
   const WatchPatientScreen({super.key, required this.patientId});
@@ -79,9 +74,7 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
   late Animation<double> _swipe;
   bool _swipingLeft = true;
 
-  // ─────────────────────────────────────────────────────────────────────────
   // Lifecycle
-  // ─────────────────────────────────────────────────────────────────────────
 
   @override
   void initState() {
@@ -102,7 +95,7 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
       const Duration(minutes: 5),
           (_) { if (mounted) _uploadHeartRate(); },
     );
-    // Also attempt an upload shortly after launch once a reading arrives
+    // Also attempt upload once a reading arrives
     Future.delayed(const Duration(seconds: 30), () {
       if (mounted) _uploadHeartRate();
     });
@@ -155,9 +148,7 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
     _swipeCtrl.value = 1.0;
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
   // Health
-  // ─────────────────────────────────────────────────────────────────────────
 
   void _initHealth() {
     try {
@@ -166,8 +157,7 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
           if (mounted && v is int && v > 0) {
             final isFirst = _heartRate == null;
             setState(() => _heartRate = v);
-            // Upload immediately on the very first reading so caretaker
-            // sees data as soon as the watch connects, without waiting 5 min.
+            // Upload immediately on first reading so caretaker sees data as soon as the watch connects, without waiting 5 min.
             if (isFirst) _uploadHeartRate();
           }
         },
@@ -176,12 +166,10 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
     } catch (e) { debugPrint('initHealth: $e'); }
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
   // Heart rate upload
-  // ─────────────────────────────────────────────────────────────────────────
 
   Future<void> _uploadHeartRate() async {
-    // Skip silently if no reading has been received from the sensor yet.
+    // Skip if no reading has been received yet.
     if (_heartRate == null) return;
     try {
       await _db.collection('patients').doc(widget.patientId).set(
@@ -189,7 +177,7 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
           'heartRate': _heartRate,
           'heartRateUpdatedAt': FieldValue.serverTimestamp(),
         },
-        SetOptions(merge: true), // Never overwrites other patient fields
+        SetOptions(merge: true),
       );
       debugPrint('HR uploaded: $_heartRate bpm');
     } catch (e) {
@@ -197,9 +185,7 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
   // Data
-  // ─────────────────────────────────────────────────────────────────────────
 
   Future<void> _loadPatientName() async {
     try {
@@ -312,9 +298,7 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
     'category':  r['category'] ?? '',
   };
 
-  // ─────────────────────────────────────────────────────────────────────────
   // Alert
-  // ─────────────────────────────────────────────────────────────────────────
 
   void _triggerAlert(Map<String, dynamic> data) {
     final id = data['reminderId'] as String? ?? '';
@@ -364,9 +348,8 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
     _loadReminders();
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
   // Navigation
-  // ─────────────────────────────────────────────────────────────────────────
+
 
   void _navigateTo(int index) {
     if (_reminders.isEmpty) return;
@@ -382,9 +365,9 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
     return n.isNotEmpty ? n : (r['description'] as String? ?? '').trim();
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
+
   // Root
-  // ─────────────────────────────────────────────────────────────────────────
+
 
   @override
   Widget build(BuildContext context) {
@@ -396,9 +379,9 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
     );
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Ambient — black, minimal OLED burn, just the essentials
-  // ─────────────────────────────────────────────────────────────────────────
+
+  // Ambient
+
 
   Widget _buildAmbient() {
     return Scaffold(
@@ -449,9 +432,7 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
     );
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
   // Active root
-  // ─────────────────────────────────────────────────────────────────────────
 
   Widget _buildActive() {
     return ClipOval(
@@ -513,9 +494,8 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
     );
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
   // Loader
-  // ─────────────────────────────────────────────────────────────────────────
+
 
   Widget _buildLoader() {
     return Center(
@@ -542,9 +522,9 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
     );
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
+
   // Empty — all done for today
-  // ─────────────────────────────────────────────────────────────────────────
+
 
   Widget _buildEmpty(double d) {
     final r   = d / 2;
@@ -589,9 +569,8 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
     );
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
   // Status row — heart rate + sign out (reused in empty + carousel)
-  // ─────────────────────────────────────────────────────────────────────────
+
 
   Widget _buildStatusRow() {
     return Row(mainAxisSize: MainAxisSize.min, children: [
@@ -616,7 +595,7 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
         ]),
       ),
       const SizedBox(width: 6),
-      // Sign out pill
+      // Sign out
       GestureDetector(
         onTap: _showLogoutSheet,
         child: Container(
@@ -642,9 +621,7 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
     ]);
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
   // Fullscreen alert overlay
-  // ─────────────────────────────────────────────────────────────────────────
 
   Widget _buildAlert(double d) {
     final data    = _alertReminder!;
@@ -748,9 +725,7 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
     );
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
   // Carousel — main view when reminders exist
-  // ─────────────────────────────────────────────────────────────────────────
 
   Widget _buildCarousel(double d) {
     final r = d / 2;
@@ -784,7 +759,7 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
           width: d, height: d,
           child: Stack(alignment: Alignment.center, children: [
 
-            // ── Greeting / counter strip ──────────────────────────────────
+            // ── Greeting strip ──────────────────────────────────
             Positioned(
               top: d * 0.08,
               child: Container(
@@ -1032,9 +1007,7 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
     );
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
   // Bottom sheets
-  // ─────────────────────────────────────────────────────────────────────────
 
   void _showDoneSheet(Map<String, dynamic> r, String timeStr) {
     final id        = r['id'] as String;
@@ -1223,11 +1196,8 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Shared helper widgets
-// ─────────────────────────────────────────────────────────────────────────────
 
-/// Button on the fullscreen alert overlay.
 class _AlertBtn extends StatelessWidget {
   final String    label;
   final IconData  icon;
@@ -1259,7 +1229,6 @@ class _AlertBtn extends StatelessWidget {
   );
 }
 
-/// White bottom sheet card styled to CogniCare.
 class _WatchSheet extends StatelessWidget {
   final List<Widget> children;
   final Color?       borderColor;
@@ -1294,7 +1263,6 @@ class _WatchSheet extends StatelessWidget {
   );
 }
 
-/// Full-width action button for bottom sheets.
 class _WatchSheetBtn extends StatelessWidget {
   final String    label;
   final Color     bg;
@@ -1330,7 +1298,6 @@ class _WatchSheetBtn extends StatelessWidget {
   );
 }
 
-/// Animated pill-dot page indicator.
 class _DotIndicator extends StatelessWidget {
   final int count;
   final int current;

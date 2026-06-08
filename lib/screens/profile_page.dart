@@ -9,7 +9,6 @@ import 'caretaker/caretaker_home_page.dart';
 
 class ProfilePage extends StatefulWidget {
   final bool isCaretaker;
-  // When set, shows the patient's profile instead of the logged-in user's
   final String? viewingPatientId;
   final String? viewingPatientName;
 
@@ -64,9 +63,7 @@ class _ProfilePageState extends State<ProfilePage>
 
   Future<void> _loadUserData() async {
     try {
-      // Viewing a patient's profile from the caretaker's context
       if (widget.viewingPatientId != null) {
-        // Fetch address from patients collection
         final patientDoc = await _firestore
             .collection('patients')
             .doc(widget.viewingPatientId)
@@ -91,14 +88,12 @@ class _ProfilePageState extends State<ProfilePage>
           final data = userDoc.data()!;
           email = data['email'] ?? '';
           phone = data['phone'] ?? '';
-          // Also grab name from users if not found in patients
           if (firstName.isEmpty) firstName = data['firstName'] ?? '';
           if (lastName.isEmpty) lastName = data['lastName'] ?? '';
         }
         return;
       }
 
-      // Normal flow: load the logged-in user's own profile
       final user = _authService.currentUser;
       if (user != null) {
         email = user.email ?? '';
@@ -225,7 +220,6 @@ class _ProfilePageState extends State<ProfilePage>
                 position: _slideAnimation,
                 child: Column(
                   children: [
-                    // ── Top bar ──────────────────────────────────
                     Padding(
                       padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
                       child: Row(
@@ -255,7 +249,7 @@ class _ProfilePageState extends State<ProfilePage>
                             ),
                           ),
                           const SizedBox(width: 14),
-                          // Logo + wordmark
+                          // Logo
                           Row(
                             children: [
                               Image.asset(
@@ -296,7 +290,7 @@ class _ProfilePageState extends State<ProfilePage>
                             ],
                           ),
                           const Spacer(),
-                          // Sign out button — hidden when viewing a patient's profile
+                          // Sign out button - hidden when viewing a patient's profile
                           if (!isViewingPatient)
                             GestureDetector(
                               onTap: _showSignOutConfirmation,

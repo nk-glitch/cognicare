@@ -33,7 +33,7 @@ class _CaretakerHomePageState extends State<CaretakerHomePage>
 
   final List<StreamSubscription> _reminderSubscriptions = [];
 
-  // Palette — slightly different from patient side to feel more "pro"
+  // Palette — slightly different from patient side
   static const _bg = Color(0xFFF7F4F2);
   static const _card = Colors.white;
   static const _accent = Color(0xFF5A7A1A);
@@ -427,7 +427,7 @@ class _CaretakerHomePageState extends State<CaretakerHomePage>
               ],
             ),
           ),
-          // Stats pill
+          // Stats
           Container(
             padding: const EdgeInsets.symmetric(
                 horizontal: 14, vertical: 8),

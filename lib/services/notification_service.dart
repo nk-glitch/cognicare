@@ -218,7 +218,7 @@ class NotificationService {
     RemoteNotification? notification = message.notification;
     final data = Map<String, dynamic>.from(message.data);
 
-    // ── Geofence breach alert ──────────────────────────────────────────────
+    // ── Geofence alert ──────────────────────────────────────────────
     if (data['type'] == 'geofence_alert') {
       final patientId =
           data['patientId'] as String? ?? message.messageId ?? 'geo';
@@ -256,7 +256,7 @@ class NotificationService {
       return;
     }
 
-    // ── Caretaker missed-reminder alert ────────────────────────────────────
+    // ── Caretaker missed reminder alert ────────────────────────────────────
     if (data['type'] == 'caretaker_alert') {
       final reminderId =
           data['reminderId'] as String? ?? message.messageId ?? 'alert';

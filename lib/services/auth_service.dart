@@ -5,10 +5,8 @@ class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // Get current user
   User? get currentUser => _auth.currentUser;
 
-  // Auth state changes stream
   Stream<User?> get authStateChanges => _auth.authStateChanges();
 
   // Sign up with email and password
@@ -23,7 +21,6 @@ class AuthService {
     try {
       print('DEBUG: Starting sign up for $email');
 
-      // Try to create user
       UserCredential? userCredential;
       String? uid;
 
@@ -34,13 +31,10 @@ class AuthService {
         );
         uid = userCredential.user!.uid;
       } catch (pigeonError) {
-        // If we get the Pigeon error, the user might actually be created
         if (pigeonError.toString().contains('PigeonUserDetails')) {
           print('DEBUG: Caught Pigeon error during signup, checking current user...');
-          // Wait a moment for auth state to update
           await Future.delayed(const Duration(milliseconds: 500));
 
-          // Check if user is now signed in (meaning signup succeeded)
           User? currentUser = _auth.currentUser;
           if (currentUser != null) {
             print('DEBUG: User created despite error: ${currentUser.uid}');
@@ -56,7 +50,6 @@ class AuthService {
 
       print('DEBUG: User created with UID: $uid');
 
-      // Create user document in Firestore
       await _firestore.collection('users').doc(uid).set({
         'email': email,
         'firstName': firstName,
@@ -129,7 +122,6 @@ class AuthService {
     try {
       print('DEBUG: Starting sign in for $email');
 
-      // Try to sign in
       UserCredential? userCredential;
       try {
         userCredential = await _auth.signInWithEmailAndPassword(
@@ -137,19 +129,14 @@ class AuthService {
           password: password,
         );
       } catch (pigeonError) {
-        // If we get the Pigeon error, the user is actually signed in
-        // This is a known bug with Firebase Auth on emulators
         if (pigeonError.toString().contains('PigeonUserDetails')) {
           print('DEBUG: Caught Pigeon error, checking current user...');
-          // Wait a moment for auth state to update
           await Future.delayed(const Duration(milliseconds: 500));
 
-          // Check if user is now signed in
           User? currentUser = _auth.currentUser;
           if (currentUser != null) {
             print('DEBUG: User is signed in despite error: ${currentUser.uid}');
-            // Create a fake UserCredential since the real one failed to deserialize
-            userCredential = null; // We'll use currentUser instead
+            userCredential = null;
           } else {
             print('DEBUG: User not signed in after Pigeon error');
             throw pigeonError;
@@ -163,7 +150,7 @@ class AuthService {
       String uid = userCredential?.user?.uid ?? _auth.currentUser!.uid;
       print('DEBUG: User logged in with UID: $uid');
 
-      // Get user data from Firestore using get() method
+      // Get user data from Firestore using get()
       final userDocRef = _firestore.collection('users').doc(uid);
       final userDocSnapshot = await userDocRef.get();
 
@@ -174,7 +161,6 @@ class AuthService {
         return {'success': false, 'message': 'User data not found.'};
       }
 
-      // Get the data as a map without casting
       final rawData = userDocSnapshot.data();
       print('DEBUG: Raw data type: ${rawData.runtimeType}');
 
@@ -183,7 +169,6 @@ class AuthService {
         return {'success': false, 'message': 'User data is null.'};
       }
 
-      // Manually build the userData map
       Map<String, dynamic> userData = {
         'email': rawData['email'] ?? email,
         'firstName': rawData['firstName'] ?? '',
@@ -251,7 +236,6 @@ class AuthService {
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      // Also update phone in users collection
       await _firestore.collection('users').doc(userId).update({
         'phone': phone,
       });
