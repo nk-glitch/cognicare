@@ -206,9 +206,14 @@ class _PatientHomePageState extends State<PatientHomePage>
           _isSharingLocation = false;
         });
         if (!ok) {
+          final servicesOn = await _locationService.isLocationServiceEnabled();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: const Text('Could not get location. Make sure GPS is on.'),
+              content: Text(
+                servicesOn
+                    ? 'Could not get location. Allow location access and try again outdoors or near a window.'
+                    : 'Location is turned off. Enable GPS in your phone settings, then try again.',
+              ),
               backgroundColor: const Color(0xFF5A7A1A),
               behavior: SnackBarBehavior.floating,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),

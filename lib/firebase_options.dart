@@ -25,7 +25,7 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyCVAGczu1lg0AYblXDzZh9gOCtmcOSR3Ow',
-    appId: '1:332272872167:android:fcf0bdf1ecc63270511042',
+    appId: '1:332272872167:android:8e5bfd0299926a63511042',
     messagingSenderId: '332272872167',
     projectId: 'cognicare-2acb1',
     storageBucket: 'cognicare-2acb1.firebasestorage.app',

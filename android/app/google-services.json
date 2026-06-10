@@ -7,9 +7,28 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:332272872167:android:fcf0bdf1ecc63270511042",
+        "mobilesdk_app_id": "1:332272872167:android:8e5bfd0299926a63511042",
         "android_client_info": {
           "package_name": "com.cognicareapp.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCVAGczu1lg0AYblXDzZh9gOCtmcOSR3Ow"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:332272872167:android:fcf0bdf1ecc63270511042",
+        "android_client_info": {
+          "package_name": "com.example.cognicare"
         }
       },
       "oauth_client": [],
