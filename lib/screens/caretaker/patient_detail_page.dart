@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'dart:async';
+import '../../constants/legal.dart';
 import '../../services/notification_service.dart';
 import 'location_map_page.dart';
 import 'calendar_page.dart';
@@ -583,110 +584,124 @@ class _PatientDetailPageState extends State<PatientDetailPage>
           ),
         ],
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: iconBg,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Icon(
-              noWatch ? Icons.watch_off_outlined : Icons.favorite_rounded,
-              color: iconColor,
-              size: 22,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: noWatch
-                ? const Text(
-              'Patient does not have a watch linked to this account.',
-              style: TextStyle(
-                fontSize: 13,
-                color: _subtext,
-                fontStyle: FontStyle.italic,
-                height: 1.4,
+          Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: iconBg,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  noWatch ? Icons.watch_off_outlined : Icons.favorite_rounded,
+                  color: iconColor,
+                  size: 22,
+                ),
               ),
-            )
-                : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+              const SizedBox(width: 16),
+              Expanded(
+                child: noWatch
+                    ? const Text(
+                  'Patient does not have a watch linked to this account.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: _subtext,
+                    fontStyle: FontStyle.italic,
+                    height: 1.4,
+                  ),
+                )
+                    : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Heart Rate',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: _subtext,
-                      ),
-                    ),
-                    if (elevated) ...[
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 7, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFFEBEB),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: const Text(
-                          '⚠ Elevated',
+                    Row(
+                      children: [
+                        const Text(
+                          'Heart Rate',
                           style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFFE57373),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: _subtext,
                           ),
+                        ),
+                        if (elevated) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 7, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFEBEB),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Text(
+                              '⚠ Elevated',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFFE57373),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          _heartRate != null ? '$_heartRate' : '--',
+                          style: TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.w800,
+                            color: bpmColor,
+                            letterSpacing: -0.5,
+                            height: 1.0,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 3),
+                          child: Text(
+                            'bpm',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: bpmColor,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (lastUpdated.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        elevated
+                            ? 'Updated $lastUpdated · above normal (>$_hrElevatedThreshold bpm)'
+                            : 'Updated $lastUpdated · syncs every 5 min',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: elevated
+                              ? const Color(0xFFE57373).withOpacity(0.8)
+                              : _subtext,
                         ),
                       ),
                     ],
                   ],
                 ),
-                const SizedBox(height: 2),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      _heartRate != null ? '$_heartRate' : '--',
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w800,
-                        color: bpmColor,
-                        letterSpacing: -0.5,
-                        height: 1.0,
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 3),
-                      child: Text(
-                        'bpm',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: bpmColor,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                if (lastUpdated.isNotEmpty) ...[
-                  const SizedBox(height: 3),
-                  Text(
-                    elevated
-                        ? 'Updated $lastUpdated · above normal (>$_hrElevatedThreshold bpm)'
-                        : 'Updated $lastUpdated · syncs every 5 min',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: elevated
-                          ? const Color(0xFFE57373).withOpacity(0.8)
-                          : _subtext,
-                    ),
-                  ),
-                ],
-              ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            kMedicalDisclaimer,
+            style: TextStyle(
+              fontSize: 11,
+              color: _subtext.withOpacity(0.85),
+              height: 1.35,
             ),
           ),
         ],

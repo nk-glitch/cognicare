@@ -1,0 +1,146 @@
+{
+  "project": "CogniCare",
+  "description": "Flutter dementia care app for caregivers and patients. Built by Apex High School students (Neelabh, Ben, David, Ashton). Goal: publish on Google Play Store.",
+  "repo": "https://github.com/nk-glitch/cognicare",
+  "tech_stack": {
+    "framework": "Flutter",
+    "backend": "Firebase (Auth, Firestore, Cloud Messaging)",
+    "maps": "Google Maps Flutter",
+    "location": "geolocator",
+    "notifications": "flutter_local_notifications + FCM",
+    "wearos": "wear_plus (Dart only, no separate wear/ folder)",
+    "other": ["table_calendar", "url_launcher", "shared_preferences"]
+  },
+  "package_name": {
+    "old": "com.example.cognicare",
+    "new": "com.cognicareapp.app",
+    "note": "Changed in code via Cursor. Firebase console still shows old name but works fine. New app entry should be added in Firebase console with new package name."
+  },
+  "completed_tasks": {
+    "privacy_policy": {
+      "status": "DONE",
+      "file": "CogniCare_Privacy_Policy.docx",
+      "note": "Needs to be hosted at public URL. Currently in Google Doc. Must add real contact email."
+    },
+    "account_deletion_page": {
+      "status": "DONE",
+      "file": "CogniCare_Account_Deletion_Request.docx",
+      "url": "https://docs.google.com/document/d/1tX5QrGESnrV6fKy8uTBY4zHlV82vUA12BDc-lSlmozk/view",
+      "note": "Hosted as Google Doc. Entered in Play Console delete account URL field. Had a 200 warning - just a precaution, not a hard block."
+    },
+    "store_listing": {
+      "status": "DONE",
+      "short_description": "Remote dementia care app for caregivers — reminders, location & heart rate.",
+      "long_description": "Written and includes calendar, medical disclaimer at bottom, all key features.",
+      "medical_disclaimer_needed_in_description": "CogniCare is not a medical device and does not diagnose, treat, cure, or prevent any medical condition. Always consult a healthcare professional for medical advice.",
+      "category": "Medical"
+    },
+    "fake_accounts_for_screenshots": {
+      "caretaker": {
+        "name": "Alex Johnson",
+        "email": "alexj@email.com",
+        "password": "Caregiver@2024",
+        "phone": "(555) 012-3456"
+      },
+      "patient_1": {
+        "name": "John Johnson",
+        "email": "johnj@email.com",
+        "password": "Patient@2024",
+        "phone": "(555) 098-7654",
+        "address": "123 Main Street, Springfield, IL 62701"
+      },
+      "patient_2": {
+        "name": "Mary Johnson",
+        "email": "maryj@email.com",
+        "password": "Patient@2024",
+        "phone": "(555) 098-7655",
+        "address": "123 Main Street, Springfield, IL 62701"
+      }
+    }
+  },
+  "data_safety_form": {
+    "status": "IN PROGRESS",
+    "csv_file_reviewed": true,
+    "confirmed_correct": [
+      "Collects data: true",
+      "Encrypted in transit: true",
+      "Account creation: Username and password",
+      "Data deletion: Yes (Google Doc URL)",
+      "Personal info: Name, Email, User IDs, Address, Phone - all collected, not shared, not ephemeral",
+      "Location: Approximate + Precise - both collected, not shared, app functionality",
+      "Health info: collected, optional (user can decline body sensors), app functionality",
+      "Calendar events: collected, required, app functionality",
+      "Crash logs + Diagnostics: collected, required, analytics + app functionality",
+      "App interactions: collected, required, app functionality",
+      "User-generated content: collected, required, app functionality",
+      "Device IDs: collected AND shared (FCM), required, app functionality"
+    ],
+    "issues_found": [
+      "Precise location was marked optional - should be REQUIRED (safe zone is core feature)",
+      "Name was only marked account_management - should also add APP_FUNCTIONALITY"
+    ],
+    "pending_question": {
+      "activity_recognition": "ACTIVITY_RECOGNITION permission is in manifest for Wear OS heart rate context. Question: does the app STORE activity data in Firestore, or just use it ephemerally to interpret heart rate? If ephemeral, no need to declare. If stored, needs Fitness info checked."
+    },
+    "fitness_info": "Do NOT check - heart rate falls under Health info, not Fitness info. Fitness info is for exercise/workout tracking.",
+    "health_info_marked_optional": "CORRECT - users can decline body sensors and still use reminders, calendar, location."
+  },
+  "health_apps_declaration": {
+    "status": "IN PROGRESS",
+    "checked_features": [
+      "Diseases and conditions management",
+      "Medication and treatment management"
+    ],
+    "not_checked": [
+      "Mental and behavioral health (removed - not a therapy app)",
+      "Research studies (not running clinical trials)"
+    ],
+    "regional_requirements": "Step 2 not yet completed - will ask about HIPAA compliance. Firebase BAA with Google may be needed if app handles PHI for US users."
+  },
+  "android_manifest": {
+    "status": "NEEDS FIX",
+    "issue": "Duplicate com.google.android.wearable.standalone meta-data tag. One in <application> set to false, one inside <activity> set to true. Remove the one inside <activity>.",
+    "permissions_in_manifest": [
+      "INTERNET",
+      "ACCESS_FINE_LOCATION",
+      "ACCESS_COARSE_LOCATION",
+      "BODY_SENSORS",
+      "ACTIVITY_RECOGNITION",
+      "health.READ_HEART_RATE",
+      "POST_NOTIFICATIONS",
+      "VIBRATE",
+      "RECEIVE_BOOT_COMPLETED"
+    ],
+    "wear_os_note": "wear_plus is Dart-only, no separate wear/ module. Single AAB covers both phone and Wear OS. Same bundle uploaded to both phone and Wear OS tabs in Play Console."
+  },
+  "permissions_declarations": {
+    "BODY_SENSORS": "Used exclusively on Wear OS to read heart rate from smartwatch sensor. Used in real time to detect abnormal readings and alert caregiver. Not stored permanently.",
+    "ACTIVITY_RECOGNITION": "Used on Wear OS to detect patient movement alongside heart rate monitoring. Helps avoid false alerts by providing activity context.",
+    "health_READ_HEART_RATE": "Used on Wear OS to access heart rate data. Sole purpose is real-time patient safety monitoring and caregiver alerts for abnormal readings."
+  },
+  "in_app_changes_needed_for_health_policy": [
+    "Add Privacy Policy link on signup screen that opens Google Doc URL in browser via url_launcher",
+    "Add consent checkbox on signup: 'I have read and agree to the Privacy Policy' - disable signup button until checked",
+    "Add medical disclaimer on heart rate screen: 'CogniCare is not a medical device and does not diagnose, treat, cure, or prevent any medical condition. Consult a healthcare professional for medical advice.'",
+    "Add healthcare reminder on heart rate screen: 'Heart rate data is for monitoring purposes only. Always consult a doctor for medical concerns.'",
+    "Add Privacy Policy link in settings/profile screen"
+  ],
+  "firebase_tasks_pending": [
+    "Add new Android app entry in Firebase console with package name com.cognicareapp.app",
+    "Download new google-services.json and replace in android/app/",
+    "Add release SHA-1 fingerprint when ready to sign for release",
+    "Consider signing Firebase BAA if targeting US users with PHI"
+  ],
+  "next_steps_remaining": [
+    "Fix duplicate wearable meta-data in AndroidManifest.xml",
+    "Rebuild app bundle after manifest fix",
+    "Implement in-app health policy changes via Cursor",
+    "Answer activity recognition storage question and update data safety form if needed",
+    "Fix data safety form: precise location = required, name = add app functionality purpose",
+    "Complete Health apps declaration Step 2 (regional requirements / HIPAA)",
+    "Add new Firebase app entry for new package name",
+    "Upload final app bundle to Play Console",
+    "Take Play Store screenshots using fake accounts",
+    "Create app icon (listed as not yet done in project doc)"
+  ]
+}

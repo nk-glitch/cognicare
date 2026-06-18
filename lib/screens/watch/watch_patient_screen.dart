@@ -197,6 +197,17 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
     } catch (e) { debugPrint('loadName: $e'); }
   }
 
+  bool _isWatchVisibleReminder(Map<String, dynamic> r) {
+    if (r['completed'] == true) return false;
+    if (r['isSnoozed'] == true) return false;
+    if (r['acknowledgedEarly'] == true) return false;
+    final tv = r['time'];
+    if (tv is! Timestamp) return false;
+    final t = tv.toDate();
+    final now = DateTime.now();
+    return t.year == now.year && t.month == now.month && t.day == now.day;
+  }
+
   Future<void> _loadReminders() async {
     final now      = DateTime.now();
     final dayStart = DateTime(now.year, now.month, now.day);
@@ -205,23 +216,26 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
       final snap = await _db
           .collection('reminders')
           .where('patientId', isEqualTo: widget.patientId)
-          .where('completed',  isEqualTo: false)
           .where('time', isGreaterThanOrEqualTo: Timestamp.fromDate(dayStart))
-          .where('time', isLessThanOrEqualTo:    Timestamp.fromDate(dayEnd))
+          .where('time', isLessThanOrEqualTo: Timestamp.fromDate(dayEnd))
           .orderBy('time')
           .get();
 
       if (!mounted) return;
+      final loaded = snap.docs
+          .map((d) => {'id': d.id, ...d.data()})
+          .where(_isWatchVisibleReminder)
+          .toList();
       setState(() {
-        _reminders    =
-            snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+        _reminders    = loaded;
         _currentIndex =
             _currentIndex.clamp(0, max(0, _reminders.length - 1));
         _isLoading    = false;
       });
+      debugPrint('Watch loaded ${loaded.length} reminder(s) for ${widget.patientId}');
       if (!_entryCtrl.isCompleted) _entryCtrl.forward();
-    } catch (e) {
-      debugPrint('loadReminders: $e');
+    } catch (e, st) {
+      debugPrint('loadReminders: $e\n$st');
       if (mounted) setState(() => _isLoading = false);
     }
   }
@@ -238,14 +252,13 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
     _reminderSub = _db
         .collection('reminders')
         .where('patientId', isEqualTo: widget.patientId)
-        .where('completed',  isEqualTo: false)
         .snapshots()
         .listen((snap) {
       if (!mounted) return;
       final now = DateTime.now();
       for (final doc in snap.docs) {
         final r = doc.data();
-        if (r['acknowledgedEarly'] == true) continue;
+        if (!_isWatchVisibleReminder(r)) continue;
         if (_alertedIds.contains(doc.id)) continue;
         final tv = r['time'];
         if (tv == null) continue;
@@ -257,7 +270,7 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
         }
       }
       _loadReminders();
-    }, onError: (e) => debugPrint('listener: $e'));
+    }, onError: (e, st) => debugPrint('listener: $e\n$st'));
   }
 
   Future<void> _checkDue() async {
@@ -265,16 +278,15 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
       final snap = await _db
           .collection('reminders')
           .where('patientId', isEqualTo: widget.patientId)
-          .where('completed',  isEqualTo: false)
           .where('time', isLessThanOrEqualTo: Timestamp.now())
           .orderBy('time')
-          .limit(5)
+          .limit(10)
           .get();
       if (snap.docs.isEmpty) return;
       final now = DateTime.now();
       for (final doc in snap.docs) {
         final r = doc.data();
-        if (r['acknowledgedEarly'] == true) continue;
+        if (!_isWatchVisibleReminder(r)) continue;
         if (_alertedIds.contains(doc.id)) continue;
         final tv = r['time'];
         if (tv == null) continue;
@@ -284,7 +296,7 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
           break;
         }
       }
-    } catch (e) { debugPrint('checkDue: $e'); }
+    } catch (e, st) { debugPrint('checkDue: $e\n$st'); }
   }
 
   Map<String, dynamic> _toAlertData(
@@ -528,7 +540,7 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
 
   Widget _buildEmpty(double d) {
     final r   = d / 2;
-    final ins = r * (1 - 1 / sqrt2) + 10;
+    final ins = r * (1 - 1 / sqrt2) + 8;
 
     return FadeTransition(
       opacity: _entryFade,
@@ -537,32 +549,48 @@ class _WatchPatientScreenState extends State<WatchPatientScreen>
         child: Padding(
           padding: EdgeInsets.all(ins),
           child: Center(
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Container(
-                width: 38, height: 38,
-                decoration: const BoxDecoration(
-                    color: _kAccentSoft, shape: BoxShape.circle),
-                child: const Icon(Icons.check_rounded,
-                    color: _kAccent, size: 20),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: const BoxDecoration(
+                      color: _kAccentSoft,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.check_rounded,
+                      color: _kAccent,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _firstName.isNotEmpty
+                        ? 'All done,\n$_firstName!'
+                        : 'All done!',
+                    style: _kBase.copyWith(
+                      color: _kText,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      height: 1.25,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'No reminders today',
+                    style: _kBase.copyWith(color: _kSubtext, fontSize: 8),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 10),
+                  _buildStatusRow(),
+                ],
               ),
-              const SizedBox(height: 9),
-              Text(
-                _firstName.isNotEmpty
-                    ? 'All done,\n$_firstName!'
-                    : 'All done!',
-                style: _kBase.copyWith(
-                    color: _kText, fontSize: 11,
-                    fontWeight: FontWeight.w800, height: 1.3),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 3),
-              Text('No reminders today',
-                  style: _kBase.copyWith(
-                      color: _kSubtext, fontSize: 8),
-                  textAlign: TextAlign.center),
-              const SizedBox(height: 12),
-              _buildStatusRow(),
-            ]),
+            ),
           ),
         ),
       ),

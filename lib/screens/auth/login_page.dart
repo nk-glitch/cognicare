@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../constants/legal.dart';
 import '../../services/auth_service.dart';
 import 'signup_page.dart';
 import 'account_setup_page.dart';
@@ -450,6 +451,10 @@ class _LoginPageState extends State<LoginPage>
                               ],
                             ),
                           ),
+
+                          const SizedBox(height: 12),
+
+                          const Center(child: PrivacyPolicyTextButton()),
 
                           const SizedBox(height: 16),
                         ],

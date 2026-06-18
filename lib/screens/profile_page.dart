@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../constants/legal.dart';
 import '../services/auth_service.dart';
 import 'auth/login_page.dart';
 import 'caretaker/location_map_page.dart';
@@ -472,6 +473,27 @@ class _ProfilePageState extends State<ProfilePage>
                                     const SizedBox(height: 4),
                                 ],
                               ),
+                            ),
+
+                            const SizedBox(height: 24),
+
+                            const _SectionLabel(label: 'LEGAL'),
+                            const SizedBox(height: 10),
+                            Container(
+                              width: double.infinity,
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(20),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFFB07A6E)
+                                        .withOpacity(0.10),
+                                    blurRadius: 30,
+                                    offset: const Offset(0, 10),
+                                  ),
+                                ],
+                              ),
+                              child: const PrivacyPolicyListTile(),
                             ),
 
                             const SizedBox(height: 24),

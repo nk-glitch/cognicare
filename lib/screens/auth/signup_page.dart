@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../constants/legal.dart';
 import '../../services/auth_service.dart';
 import 'account_setup_page.dart';
 import '../caretaker/caretaker_home_page.dart';
@@ -26,6 +27,7 @@ class _SignUpPageState extends State<SignUpPage>
   bool _isLoading = false;
   bool _obscurePassword = true;
   bool _obscureConfirm = true;
+  bool _agreedToPrivacyPolicy = false;
 
   late AnimationController _animController;
   late Animation<double> _fadeAnimation;
@@ -415,15 +417,25 @@ class _SignUpPageState extends State<SignUpPage>
                                 ),
                               ),
 
-                              const SizedBox(height: 24),
+                              const SizedBox(height: 20),
+
+                              PrivacyPolicyConsentCheckbox(
+                                value: _agreedToPrivacyPolicy,
+                                onChanged: (v) => setState(
+                                  () => _agreedToPrivacyPolicy = v ?? false,
+                                ),
+                              ),
+
+                              const SizedBox(height: 20),
 
                               // CTA
                               SizedBox(
                                 width: double.infinity,
                                 height: 54,
                                 child: ElevatedButton(
-                                  onPressed:
-                                  _isLoading ? null : _handleSignUp,
+                                  onPressed: (_isLoading || !_agreedToPrivacyPolicy)
+                                      ? null
+                                      : _handleSignUp,
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: const Color(0xFF5A7A1A),
                                     foregroundColor: Colors.white,
